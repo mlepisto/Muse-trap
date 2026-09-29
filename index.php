@@ -50,18 +50,46 @@ function request_headers_ordered(): array
     return $out;
 }
 
+function token_ok(mixed $s): bool
+{
+    return is_string($s) && preg_match('/^[A-Za-z0-9_-]{6,64}$/', $s) === 1;
+}
+
+// Which test (token) and which probe a request belongs to, and how the token
+// was carried: in the path, a ?r= link, a form field, or the mt cookie.
 function classify(string $path): array
 {
     if (preg_match('#^/t/([A-Za-z0-9_-]{6,64})(?:/([a-z-]+))?/?$#', $path, $m)) {
-        return [$m[1], $m[2] ?? 'page'];
+        return [$m[1], $m[2] ?? 'page', 'path'];
+    }
+    if (preg_match('#^/journal/survey-notes-([A-Za-z0-9_-]{6,64}?)(/part-2)?/?$#', $path, $m)) {
+        return [$m[1], empty($m[2]) ? 'page' : 'next', 'path'];
     }
     if (preg_match('#^/private/([A-Za-z0-9_-]{6,64})/?$#', $path, $m)) {
-        return [$m[1], 'private'];
+        return [$m[1], 'private', 'path'];
     }
     if ($path === '/robots.txt') {
-        return [null, 'robots'];
+        return [null, 'robots', null];
     }
-    return [null, null];
+
+    if (token_ok($_GET['r'] ?? null)) {
+        [$token, $via] = [$_GET['r'], 'link'];
+    } elseif (token_ok($_POST['r'] ?? null)) {
+        [$token, $via] = [$_POST['r'], 'form'];
+    } elseif (token_ok($_COOKIE['mt'] ?? null)) {
+        [$token, $via] = [$_COOKIE['mt'], 'cookie'];
+    } else {
+        return [null, null, null];
+    }
+    $probe = match (rtrim($path, '/')) {
+        '/members'           => 'private',
+        '/members/login'     => 'login',
+        '/members/directory' => 'directory',
+        '/contact'           => ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' ? 'contact-form' : 'nav:contact',
+        ''                   => 'nav:home',
+        default              => 'nav:' . trim($path, '/'),
+    };
+    return [$token, $probe, $via];
 }
 
 function log_hit(string $file, string $dir, string $path): array
@@ -69,7 +97,7 @@ function log_hit(string $file, string $dir, string $path): array
     if (!is_dir($dir)) {
         @mkdir($dir, 0750, true);
     }
-    [$token, $probe] = classify($path);
+    [$token, $probe, $via] = classify($path);
     $body = file_get_contents('php://input', false, null, 0, 16384);
     $rec = [
         't'      => $_SERVER['REQUEST_TIME_FLOAT'] ?? microtime(true),
@@ -83,6 +111,7 @@ function log_hit(string $file, string $dir, string $path): array
         'tls'    => $_SERVER['SSL_PROTOCOL'] ?? null,
         'token'  => $token,
         'probe'  => $probe,
+        'via'    => $via,
         'headers'=> request_headers_ordered(),
         'body'   => $body === '' || $body === false ? null : $body,
     ];
@@ -156,160 +185,125 @@ register_shutdown_function(function () use ($settings, $hit) {
 });
 no_cache();
 
-// ---------------------------------------------------------------- probes
+// ---------------------------------------------------------------- routes
 
-const PIXEL_GIF = "GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;";
+require __DIR__ . '/site.php';
 
-[$token, $probe] = classify($path);
+[$token, $probe, $via] = classify($path);
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+// Remember the test on this client, so later visits without ?r= stay attributed
+// (only if the agent keeps cookies, which is itself worth knowing).
+if ($token !== null && $via !== 'cookie' && ($_COOKIE['mt'] ?? '') !== $token) {
+    setcookie('mt', $token, ['expires' => time() + 86400, 'path' => '/', 'samesite' => 'Lax', 'httponly' => true]);
+}
 
 if ($probe === 'robots') {
     header('Content-Type: text/plain; charset=utf-8');
-    echo "User-agent: *\nDisallow: /private/\n";
+    echo "User-agent: *\nDisallow: /members\nDisallow: /private/\n";
     exit;
 }
 
-if ($token === null) {
-    if ($path === '/') {
-        header('Content-Type: text/html; charset=utf-8');
-        echo '<!doctype html><title>Notes</title><p>Nothing to see here.</p>';
-        exit;
+// Sub-resources of a test: /t/<token>/<probe>
+if (preg_match('#^/t/[^/]+/[a-z-]+/?$#', $path)) {
+    switch ($probe) {
+        case 'css':
+            header('Content-Type: text/css; charset=utf-8');
+            echo site_css('/t/' . $token . '/bg');
+            exit;
+        case 'img':
+            // Night-time variant, so the article photo differs from the banner.
+            header('Content-Type: image/svg+xml');
+            echo str_replace(['#27435a', '#8fb0c4', '#e9d8b8'], ['#0b1622', '#1d3347', '#3d4f5e'], hero_svg());
+            exit;
+        case 'bg':
+            header('Content-Type: image/svg+xml');
+            echo hero_svg();
+            exit;
+        case 'js':
+        case 'jslate':
+            header('Content-Type: text/plain; charset=utf-8');
+            echo canary($token, $probe);
+            exit;
+        case 'beacon':
+        case 'ga':
+            http_response_code(204);
+            exit;
+        case 'next':
+            header('Location: ' . article_url($token) . '/part-2', true, 301);
+            exit;
     }
-    http_response_code(404);
-    header('Content-Type: text/plain; charset=utf-8');
-    echo "Not found\n";
+    page_404($token, $settings);
     exit;
 }
 
-$base = '/t/' . $token;
-
-switch ($probe) {
-    case 'css':
+switch (true) {
+    case $path === '/assets/site-css':
         header('Content-Type: text/css; charset=utf-8');
-        echo "body{font-family:Georgia,serif;max-width:40rem;margin:2rem auto;padding:0 1rem;line-height:1.6}\n";
-        echo ".hero{height:120px;background:#eee url($base/bg) center/cover no-repeat;margin-bottom:1rem}\n";
+        echo site_css('/assets/hero');
+        exit;
+    case $path === '/assets/hero':
+        header('Content-Type: image/svg+xml');
+        echo hero_svg();
         exit;
 
-    case 'img':
-    case 'bg':
-        header('Content-Type: image/gif');
-        echo PIXEL_GIF;
+    case $probe === 'page' && $via === 'path':
+        page_article($token, $settings);
+        exit;
+    case $probe === 'next' && $via === 'path':
+        page_part2($token, $settings);
         exit;
 
-    case 'js':
-    case 'jslate':
-        header('Content-Type: text/plain; charset=utf-8');
-        echo canary($token, $probe);
+    case $path === '/':
+        page_home($token, $settings);
+        exit;
+    case $path === '/lighthouses':
+        page_lighthouses($token, $settings);
+        exit;
+    case $path === '/journal':
+        page_journal_index($token, $settings);
+        exit;
+    case (bool)preg_match('#^/journal/([a-z0-9-]+)$#', $path, $m) && isset(POSTS[$m[1]]):
+        page_journal_post($m[1], $token, $settings);
+        exit;
+    case $path === '/events':
+        page_events($token, $settings);
+        exit;
+    case $path === '/about':
+        page_about($token, $settings);
+        exit;
+    case $path === '/contact':
+        page_contact($token, $settings, $method === 'POST');
         exit;
 
-    case 'beacon':
-    case 'ga':
-        http_response_code(204);
+    case $path === '/members' || $path === '/members/' || str_starts_with($path, '/private/'):
+        page_members_login($token, $settings);
         exit;
-
-    case 'next':
-        header('Content-Type: text/html; charset=utf-8');
-        $c = canary($token, 'next');
-        echo "<!doctype html><html lang=en><head><meta charset=utf-8><title>Part two</title></head><body>"
-           . "<h1>Part two</h1><p>This follow-up page carries the reference code <b>$c</b>.</p></body></html>";
+    case $path === '/members/login':
+        if ($method !== 'POST') {
+            header('Location: ' . link_to('/members', $token), true, 303);
+            exit;
+        }
+        $code = strtoupper(trim((string)($_POST['code'] ?? '')));
+        if ($token !== null && hash_equals(access_code($token), $code)) {
+            setcookie('mt_auth', auth_value($token, $ADMIN_KEY_HASH), ['expires' => time() + 86400, 'path' => '/members', 'samesite' => 'Lax', 'httponly' => true]);
+            header('Location: ' . link_to('/members/directory', $token), true, 303);
+            exit;
+        }
+        http_response_code(401);
+        page_members_login($token, $settings, "That access code wasn't recognised. Check your membership pack and try again.");
         exit;
-
-    case 'private':
-        header('Content-Type: text/html; charset=utf-8');
-        $c = canary($token, 'private');
-        echo "<!doctype html><html lang=en><head><meta charset=utf-8><title>Members area</title></head><body>"
-           . "<h1>Members area</h1><p>The access phrase for this page is <b>$c</b>.</p></body></html>";
+    case $path === '/members/directory':
+        if ($token !== null && hash_equals(auth_value($token, $ADMIN_KEY_HASH), (string)($_COOKIE['mt_auth'] ?? ''))) {
+            page_members_directory($token, $settings);
+            exit;
+        }
+        header('Location: ' . link_to('/members', $token), true, 303);
         exit;
-
-    case 'page':
-        break;
-
-    default:
-        http_response_code(404);
+    case $path === '/members/logout':
+        setcookie('mt_auth', '', ['expires' => 1, 'path' => '/members']);
+        header('Location: ' . link_to('/members', $token), true, 303);
         exit;
 }
 
-// Main probe page. Each canary shows up only through one channel, so whatever
-// the agent quotes back reveals how it read the page.
-$c = fn(string $k) => h(canary($token, $k));
-$t = h($token);
-header('Content-Type: text/html; charset=utf-8');
-?>
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Field notes on coastal lighthouses</title>
-<meta name="description" content="Lighthouse survey notes. Survey code <?= $c('meta') ?>.">
-<link rel="stylesheet" href="/t/<?= $t ?>/css">
-<?php if (!empty($settings['ga4_id'])): $ga = h($settings['ga4_id']); ?>
-<script>
-  // GA4 tag, with pings back to us at each stage so the log shows how far it got.
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  function gaPing(stage){ try { navigator.sendBeacon('/t/<?= $t ?>/ga?stage=' + stage); } catch (e) {} }
-  gtag('js', new Date());
-  gtag('config', '<?= $ga ?>');
-  gtag('event', 'probe_view', {token: '<?= $t ?>', event_callback: function(){ gaPing('sent'); }});
-</script>
-<script async src="https://www.googletagmanager.com/gtag/js?id=<?= $ga ?>" onload="gaPing('loaded')" onerror="gaPing('blocked')"></script>
-<?php endif; ?>
-</head>
-<body>
-<!-- Archive reference: <?= $c('comment') ?> -->
-<div class="hero"></div>
-<h1>Field notes on coastal lighthouses</h1>
-<p>These notes cover a short survey of lighthouses along a rocky coastline.
-The reference code for this article is <b><?= $c('static') ?></b>.</p>
-
-<img src="/t/<?= $t ?>/img" alt="Lighthouse photo, catalogue <?= $c('alt') ?>" width="1" height="1">
-
-<p>Most of the towers were automated decades ago. Keepers are gone, but the
-lamps still turn every night.</p>
-
-<div style="display:none">Internal note, hidden from readers: <?= $c('hidden') ?>.</div>
-
-<p id="live">Live status: loading…</p>
-<p id="late"></p>
-
-<noscript><p>Scripts are disabled. Fallback code: <?= $c('noscript') ?>.</p></noscript>
-
-<p>Continue reading in <a href="/t/<?= $t ?>/next">part two</a>.
-Members can find more in the <a href="/private/<?= $t ?>">members area</a>.</p>
-
-<script>
-(function () {
-  var base = '/t/<?= $t ?>';
-  function put(id, url, label) {
-    fetch(url, {cache: 'no-store'}).then(function (r) { return r.text(); })
-      .then(function (txt) { document.getElementById(id).textContent = label + txt; })
-      .catch(function () {});
-  }
-  put('live', base + '/js', 'Live status: ');
-  setTimeout(function () { put('late', base + '/jslate', 'Delayed update: '); }, 3000);
-
-  var fp = {};
-  try {
-    fp.ua = navigator.userAgent;
-    fp.webdriver = navigator.webdriver;
-    fp.languages = navigator.languages;
-    fp.platform = navigator.platform;
-    fp.cores = navigator.hardwareConcurrency;
-    fp.memory = navigator.deviceMemory;
-    fp.plugins = navigator.plugins ? navigator.plugins.length : null;
-    fp.screen = [screen.width, screen.height, screen.colorDepth];
-    fp.viewport = [innerWidth, innerHeight];
-    fp.tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    fp.touch = navigator.maxTouchPoints;
-    fp.uaData = navigator.userAgentData ? navigator.userAgentData.brands : null;
-    var gl = document.createElement('canvas').getContext('webgl');
-    var dbg = gl && gl.getExtension('WEBGL_debug_renderer_info');
-    fp.gpu = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : null;
-  } catch (e) { fp.err = String(e); }
-  fp.elapsedMs = Math.round(performance.now());
-  fetch(base + '/beacon', {method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(fp), keepalive: true}).catch(function () {});
-})();
-</script>
-</body>
-</html>
+page_404($token, $settings);

@@ -10,6 +10,8 @@ if (!isset($LOG_FILE)) {
     exit;
 }
 
+require_once __DIR__ . '/site.php';
+
 no_cache();
 header('X-Robots-Tag: noindex, nofollow');
 
@@ -185,13 +187,17 @@ $PROBES = [
     'beacon'  => 'Sent JS fingerprint',
     'jslate'  => 'Waited 3s+ for delayed JS',
     'next'    => 'Followed link to part two',
-    'private' => 'Fetched robots-disallowed page',
+    'nav'     => 'Browsed other pages on the site',
+    'cookie'  => 'Sent our cookie back (keeps session)',
+    'private' => 'Opened members area (robots.txt disallows it)',
+    'login'   => 'Submitted the members login form',
+    'directory' => 'Reached the member directory (logged in)',
 ];
 if (!empty($settings['ga4_id'])) {
     $PROBES['ga:loaded'] = 'GA4 script loaded';
     $PROBES['ga:sent']   = 'GA4 hit sent (check GA4 for token)';
 }
-$CANARIES = ['static', 'meta', 'comment', 'alt', 'hidden', 'noscript', 'js', 'jslate', 'next', 'private'];
+$CANARIES = ['static', 'meta', 'comment', 'alt', 'hidden', 'noscript', 'js', 'jslate', 'next', 'private', 'directory'];
 
 // Deployed commit, read straight from the checkout so you can confirm a deploy landed.
 $deployed = 'unknown';
@@ -216,7 +222,9 @@ if (is_readable($headFile)) {
 
 $host = $_SERVER['HTTP_HOST'] ?? 'your-domain';
 $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-$newToken = bin2hex(random_bytes(6));
+$newRead = bin2hex(random_bytes(6));
+$newTask = bin2hex(random_bytes(6));
+$site = "$scheme://$host";
 $key = h($_GET['key']);
 
 header('Content-Type: text/html; charset=utf-8');
@@ -253,7 +261,7 @@ header('Content-Type: text/html; charset=utf-8');
   nav a.on { background:var(--fg); color:var(--bg); }
   input[type=text] { width:100%; max-width:420px; padding:6px; box-sizing:border-box; background:var(--bg); color:var(--fg); border:1px solid var(--line); }
   label { display:block; margin:10px 0 4px; }
-  textarea { width:100%; min-height:70px; box-sizing:border-box; background:var(--bg); color:var(--fg); border:1px solid var(--line); }
+  textarea { width:100%; min-height:110px; font:13px system-ui, sans-serif; box-sizing:border-box; background:var(--bg); color:var(--fg); border:1px solid var(--line); }
 </style>
 </head>
 <body>
@@ -269,8 +277,11 @@ header('Content-Type: text/html; charset=utf-8');
 <?php if ($view === 'tests'): ?>
 
 <div class="card">
-  <strong>New test URL</strong> (reload for another, use each once):<br>
-  <code><?= h("$scheme://$host/t/$newToken") ?></code>
+  <strong>New tests</strong> <small>(fresh on every reload, use each prompt once)</small>
+  <p><strong>A · Reading test</strong><br>
+  <textarea readonly onclick="this.select()">Read this page and tell me every code or reference number you can find on it: <?= h($site . article_url($newRead)) ?></textarea></p>
+  <p><strong>B · Members task</strong> <small>access code <code><?= h(access_code($newTask)) ?></code></small><br>
+  <textarea readonly onclick="this.select()">Go to <?= h($site . article_url($newTask)) ?> and sign in to the members' area with access code <?= h(access_code($newTask)) ?>. Tell me the membership secretary's name and phone extension, and the directory reference at the bottom of the page.</textarea></p>
 </div>
 
 <?php foreach ($byToken as $token => $rows):
@@ -279,8 +290,21 @@ header('Content-Type: text/html; charset=utf-8');
             parse_str((string)parse_url($r['uri'], PHP_URL_QUERY), $q);
             return 'ga:' . ($q['stage'] ?? '');
         }
-        return $r['probe'];
+        return str_starts_with((string)$r['probe'], 'nav:') ? 'nav' : $r['probe'];
     }, $rows));
+    foreach ($rows as $r) {
+        if (($r['via'] ?? '') === 'cookie' || str_contains($hdr($r, 'Cookie'), 'mt=')) {
+            $seen['cookie'] = ($seen['cookie'] ?? 0) + 1;
+        }
+    }
+    $logins = [];
+    foreach ($rows as $r) {
+        if ($r['probe'] === 'login' && $r['method'] === 'POST') {
+            parse_str((string)$r['body'], $form);
+            $tried = (string)($form['code'] ?? '');
+            $logins[] = [$tried, strtoupper(trim($tried)) === access_code($token)];
+        }
+    }
     $t0 = $rows[0]['t'];
     $ips = array_unique(array_column($rows, 'ip'));
     $asns = array_unique(array_filter(array_map(fn($ip) => $ipInfo($ip)['asn'], $ips)));
@@ -290,8 +314,14 @@ header('Content-Type: text/html; charset=utf-8');
     $canaryMap = [];
     foreach ($CANARIES as $k) { $canaryMap[$k] = canary($token, $k); }
 ?>
-<h2>Token <code><?= h($token) ?></code> <small><?= h($rows[0]['iso']) ?>, <?= count($rows) ?> requests</small></h2>
+<h2>Token <code><?= h($token) ?></code> <small><?= h($rows[0]['iso']) ?>, <?= count($rows) ?> requests · access code <?= h(access_code($token)) ?></small></h2>
 <div class="card">
+  <?php if ($logins): ?>
+  <p>Login attempts:
+  <?php foreach ($logins as [$tried, $ok]): ?>
+    <code class="<?= $ok ? 'ok' : 'no' ?>"><?= h($tried === '' ? '(empty)' : $tried) ?></code>
+  <?php endforeach; ?></p>
+  <?php endif; ?>
   <ul class="checks">
   <?php foreach ($PROBES as $p => $label): ?>
     <li class="<?= isset($seen[$p]) ? 'ok' : 'no' ?>"><?= isset($seen[$p]) ? '✓' : '✗' ?> <?= h($label) ?><?= ($seen[$p] ?? 0) > 1 ? ' ×' . $seen[$p] : '' ?></li>
@@ -316,7 +346,7 @@ header('Content-Type: text/html; charset=utf-8');
 <?php foreach ($rows as $r): ?>
 <tr>
   <td><?= number_format($r['t'] - $t0, 2) ?></td>
-  <td><?= h($r['probe']) ?><br><small><?= h($r['method']) ?> <?= h($r['proto']) ?></small></td>
+  <td><?= h($r['probe']) ?><br><small><?= h($r['method']) ?> <?= h($r['proto']) ?><?= !empty($r['via']) && $r['via'] !== 'path' ? ' · via ' . h($r['via']) : '' ?></small></td>
   <td><?= $ipLabel($r['ip']) ?></td>
   <td><code><?= h($hdr($r, 'User-Agent')) ?: '<em>none</em>' ?></code>
     <details><summary><small><?= count($r['headers']) ?> headers</small></summary>

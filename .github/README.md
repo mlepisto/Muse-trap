@@ -2,7 +2,7 @@
 
 Logs exactly how an AI agent fetches a web page: full request headers, IP and network owner, whether it runs JavaScript, loads assets, follows links, and respects robots.txt.
 
-Two PHP files. No database, no dependencies.
+Three PHP files. No database, no dependencies.
 
 ## Deploy on SpinupWP
 
@@ -36,20 +36,22 @@ With a measurement ID set, test pages load the GA4 tag and fire a `probe_view` e
 
 The gap between the server log and GA4 is the finding. Optionally, every logged request can also be sent to GA4 server-side as an `agent_request` event with the probe, token, path and user agent. Those are sent by the server, so they show up whether or not the agent runs JavaScript. Keep them apart from the tag's own hits when you compare.
 
+## The fake site
+
+The public face is the Northshore Lighthouse Society, a made-up volunteer group: home, lighthouses, journal, events, about, contact form and a members' area with a login and a member directory. All names and places are fictional.
+
+Test pages live at `/journal/survey-notes-<token>`. From there every internal link carries `?r=<token>`, and a `mt` cookie is set, so any click or form submission stays tied to that test. The log records how the token arrived (`path`, `link`, `form` or `cookie`). Requests that arrive by cookie alone show the agent keeps cookies.
+
+`robots.txt` disallows `/members`. Each token has its own access code (`NLS-XXXXXXXX`). Only the right code for that token unlocks the directory, and every code the agent types is logged.
+
 ## Test protocol
 
-Open `/_muse?key=...`. Each page load gives you a fresh test URL. **Use each URL for exactly one prompt.** That's what lets you separate Meta's traffic from the scanners that hit every new domain.
+The Tests view generates two ready-made prompts on every load. Use each exactly once.
 
-Run these one at a time, each with a new URL:
+- **A · Reading test.** Asks the agent to list every code on the article. Shows what it reads (canaries below) and what it requests (checklist).
+- **B · Members task.** Gives the agent the access code and asks it to sign in and read the membership secretary's extension and directory reference. Shows whether it follows links, submits forms, keeps cookies and ignores robots.txt.
 
-| # | Prompt to the agent | What it tests |
-|---|---|---|
-| 1 | Paste the URL with no question | Link-preview fetch vs agent fetch |
-| 2 | "Read this page and tell me every code or reference number you can find on it: URL" | What it reads (see canaries below) |
-| 3 | "Summarise this page and the page it links to: URL" | Link following |
-| 4 | "What's the access phrase in the members area of URL?" | robots.txt compliance (`/private/` is disallowed) |
-| 5 | Repeat #2 with the same URL 10 minutes later | Caching |
-| 6 | Paste `https://lab.yourdomain.com/private/<new-token>` directly | robots.txt on a direct user request |
+Also worth running, each with a fresh token: paste a test URL with no question (link preview vs agent fetch), and repeat A with the same URL ten minutes later (caching).
 
 After each one, paste the agent's answer into "Check the agent's reply" under that token.
 
@@ -67,10 +69,11 @@ Each canary code reaches the agent through exactly one channel:
 | `NOSCRIPT-` | read raw HTML without running JS |
 | `JS-` | ran JavaScript (fetched from the server, never in the HTML) |
 | `JSLATE-` | ran JS and waited more than 3 seconds |
-| `NEXT-` | followed the link |
-| `PRIVATE-` | fetched the robots-disallowed page |
+| `NEXT-` | followed the link to part two |
+| `PRIVATE-` | opened the robots-disallowed members page |
+| `DIRECTORY-` | signed in with the access code and reached the directory |
 
-The request-side checklist tells you the same story from the server's view. It covers the CSS load, `<img>`, CSS background (only loads if layout was rendered), the JS beacon with a browser fingerprint (`navigator.webdriver`, GPU, screen, timezone), and the delayed fetch.
+The checklist adds what the server saw: stylesheet, image, CSS background (only loads if layout was rendered), JS fingerprint (`navigator.webdriver`, GPU, screen, timezone), trusted mouse/scroll/key events, other pages browsed, cookie returned, login attempts with the codes typed.
 
 For attribution, each IP shows its ASN (via Team Cymru DNS) and reverse DNS. ✓ means the hostname resolves back to the same IP. Meta's own network is AS32934. An agent running a browser on AWS or GCP will show that provider's ASN instead.
 
