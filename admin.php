@@ -192,6 +192,27 @@ if (!empty($settings['ga4_id'])) {
 }
 $CANARIES = ['static', 'meta', 'comment', 'alt', 'hidden', 'noscript', 'js', 'jslate', 'next', 'private'];
 
+// Deployed commit, read straight from the checkout so you can confirm a deploy landed.
+$deployed = 'unknown';
+$headFile = __DIR__ . '/.git/HEAD';
+if (is_readable($headFile)) {
+    $head = trim((string)file_get_contents($headFile));
+    if (str_starts_with($head, 'ref: ')) {
+        $ref = substr($head, 5);
+        $sha = @file_get_contents(__DIR__ . '/.git/' . $ref);
+        if ($sha === false && is_readable(__DIR__ . '/.git/packed-refs')) {
+            foreach (file(__DIR__ . '/.git/packed-refs') as $l) {
+                if (str_ends_with(trim($l), ' ' . $ref)) {
+                    $sha = strtok($l, ' ');
+                }
+            }
+        }
+        $deployed = preg_replace('#^refs/heads/#', '', $ref) . ' @ ' . substr(trim((string)$sha), 0, 7);
+    } else {
+        $deployed = substr($head, 0, 7);
+    }
+}
+
 $host = $_SERVER['HTTP_HOST'] ?? 'your-domain';
 $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
 $newToken = bin2hex(random_bytes(6));
@@ -242,7 +263,7 @@ header('Content-Type: text/html; charset=utf-8');
   <a href="/_muse?key=<?= $key ?>&view=<?= $v ?>"<?= $view === $v ? ' class="on"' : '' ?>><?= $label ?></a>
 <?php endforeach; ?>
 </nav>
-<p><?= count($hits) ?> requests logged. <a href="/_muse?key=<?= $key ?>&format=jsonl">Download raw log</a></p>
+<p><small>Deployed: <code><?= h($deployed) ?></code></small><br><?= count($hits) ?> requests logged. <a href="/_muse?key=<?= $key ?>&format=jsonl">Download raw log</a></p>
 
 <?php if ($view === 'tests'): ?>
 
