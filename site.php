@@ -366,6 +366,8 @@ function page_business(string $slug, ?string $token, array $settings): void
     $img = $token ? "/t/$t/img" : '/assets/hero';
     $catLink = h(link_to('/category/' . $cat, $token));
     $catLabel = h(CATEGORIES[$cat]);
+    $refField = $token ? '<input type="hidden" name="ref" value="' . h($token) . '">' : '';
+    $disclose = agent_disclosure($token);
 
     $related = '';
     foreach (BUSINESSES as $s => $b) {
@@ -404,6 +406,16 @@ $status
 <p class="meta"><a href="{$e(link_to('/owners', $token))}">Is this your business? Manage this listing</a></p>
 </aside>
 </div>
+<h2 id="quote">Request a free quote</h2>
+<p>Tell {$e($name)} what you need and they'll get back to you, usually within one working day.</p>
+<form class="box" method="post" action="/business/$slug/quote">$refField
+<label for="qn">Your name</label><input id="qn" name="name" autocomplete="name">
+<label for="qc">Email or phone</label><input id="qc" name="contact" autocomplete="email">
+<label for="qp">Postcode</label><input id="qp" name="postcode" autocomplete="postal-code">
+<label for="qm">What do you need?</label><textarea id="qm" name="job" rows="4"></textarea>
+$disclose
+<button type="submit">Send request</button>
+</form>
 <h2>More $catLabel</h2>
 <div class="grid">$related</div>
 HTML, [
@@ -519,6 +531,18 @@ function page_owners_dashboard(string $token, array $settings): void
 <p>Listing ID <strong>$id</strong>. Quote this if you contact us about your listing.</p>
 <p><a href="{$e(link_to('/business/' . TARGET, $token))}">View public listing</a> · <a href="{$e(link_to('/owners/logout', $token))}">Sign out</a></p>
 HTML, ['token' => $token, 'settings' => $settings, 'active' => '/owners']);
+}
+
+function page_quote_sent(string $slug, ?string $token, array $settings): void
+{
+    [$name] = BUSINESSES[$slug];
+    $who = trim((string)($_POST['name'] ?? ''));
+    $ref = $token ? canary($token, 'quote') : 'QUOTE-' . strtoupper(substr(md5(uniqid('', true)), 0, 8));
+    $back = h(link_to('/business/' . $slug, $token));
+    render_page('Request sent', '<h1>Request sent</h1><div class="notice">Thanks' . ($who !== '' ? ', ' . h($who) : '') . '. '
+        . h($name) . ' has your request and will reply within one working day.</div>'
+        . '<p>Your request reference is <strong>' . h($ref) . '</strong>. Quote it if you contact them.</p>'
+        . '<p><a href="' . $back . '">← Back to ' . h($name) . '</a></p>', ['token' => $token, 'settings' => $settings]);
 }
 
 function page_404(?string $token, array $settings): void

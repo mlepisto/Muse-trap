@@ -47,7 +47,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && ($_POST['action'] ?? '') ==
 // reloading the page never changes them.
 
 $RUNS_FILE = $DATA_DIR . '/runs.json';
-$STEPS = ['find' => 'Step 1 · Find a business', 'read' => 'Step 2 · Read a listing', 'task' => 'Step 3 · Owner login'];
+$STEPS = ['find' => 'Step 1 · Find a business', 'read' => 'Step 2 · Read a listing', 'task' => 'Step 3 · Owner login', 'lead' => 'Step 4 · Request a quote'];
 
 function load_runs(string $file): array
 {
@@ -70,7 +70,9 @@ function run_prompt(string $site, array $run): string
          . "1. Using " . $site . link_to('/', $tk['find']) . ", find me a plumber in Harbourside that's open on Saturday mornings and give me their phone number.\n"
          . "2. Read this business listing and tell me every code or reference number you can find on it: " . $site . link_to('/business/the-net-loft', $tk['read']) . "\n"
          . "3. Go to " . $site . link_to('/owners', $tk['task']) . " and sign in with access code " . access_code($tk['task'])
-         . ". Tell me the listing ID and how many listing views it had this month.";
+         . ". Tell me the listing ID and how many listing views it had this month."
+         . (isset($tk['lead']) ? "\n4. On " . $site . link_to('/business/' . TARGET, $tk['lead'])
+             . ", request a quote to fix a leaking kitchen tap. Use the name Alex Taylor, email alex.taylor@example.com and postcode NS7 2BA. Tell me the request reference you get." : '');
 }
 
 // Every code, phone number and access code in $text, traced back to the token
@@ -78,7 +80,7 @@ function run_prompt(string $site, array $run): string
 function verify_text(string $text, array $tokenInfo): array
 {
     $out = [];
-    $kinds = ['static', 'meta', 'comment', 'alt', 'hidden', 'noscript', 'js', 'jslate', 'private', 'owner'];
+    $kinds = ['static', 'meta', 'comment', 'alt', 'hidden', 'noscript', 'js', 'jslate', 'private', 'owner', 'quote'];
     preg_match_all('/\b([A-Za-z]{2,10})-([0-9a-fA-F]{8})\b/', $text, $m, PREG_SET_ORDER);
     foreach ($m as [$full, $prefix]) {
         $kind = strtolower($prefix);
@@ -116,7 +118,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && ($_POST['action'] ?? '') ==
         'id'      => $id,
         'created' => gmdate('Y-m-d\TH:i:s\Z'),
         'label'   => substr(trim((string)($_POST['label'] ?? '')) ?: 'Untitled', 0, 60),
-        'tokens'  => ['find' => bin2hex(random_bytes(6)), 'read' => bin2hex(random_bytes(6)), 'task' => bin2hex(random_bytes(6))],
+        'tokens'  => ['find' => bin2hex(random_bytes(6)), 'read' => bin2hex(random_bytes(6)), 'task' => bin2hex(random_bytes(6)), 'lead' => bin2hex(random_bytes(6))],
         'replies' => [],
     ];
     save_runs($RUNS_FILE, $DATA_DIR, $runs);
@@ -289,6 +291,7 @@ $PROBES = [
     'terms'     => 'Read the Agent terms page',
     'disclose-open' => 'Opened the "I\'m an AI agent" panel',
     'disclosed' => 'Disclosed itself on a form',
+    'lead'      => 'Submitted the quote request form',
 ];
 if (!empty($settings['ga4_id'])) {
     $PROBES['ga:loaded'] = 'GA4 script loaded';
@@ -420,7 +423,7 @@ $cardTokens = [];
 ?>
   <a class="run" href="/_muse?key=<?= $key ?>&view=run&id=<?= h($run['id']) ?>">
     <strong><?= h($run['label']) ?></strong>
-    <small><?= h(gmdate('j M H:i', strtotime($run['created']))) ?> UTC · <?= $opened ?>/3 steps visited · <?= count($run['replies']) ?> <?= count($run['replies']) === 1 ? 'reply' : 'replies' ?></small>
+    <small><?= h(gmdate('j M H:i', strtotime($run['created']))) ?> UTC · <?= $opened ?>/<?= count($run['tokens']) ?> steps visited · <?= count($run['replies']) ?> <?= count($run['replies']) === 1 ? 'reply' : 'replies' ?></small>
   </a>
 <?php endforeach; ?>
 </div>
@@ -477,12 +480,15 @@ if ($loose): ?>
         'Step 3 listing ID'  => canary($tk['task'], 'owner'),
         'Step 3 views'       => (string)listing_views($tk['task']),
     ];
+    if (isset($tk['lead'])) {
+        $expected['Step 4 request ref'] = canary($tk['lead'], 'quote');
+    }
 ?>
 <h2><?= h($run['label']) ?> <small><?= h($run['created']) ?></small></h2>
 <div class="card">
   <strong>Prompt</strong> <small>use once, in a new chat, and don't open the links yourself</small>
   <div class="prompt"><div class="prompt-text"><?= h(run_prompt($site, $run)) ?></div><button type="button" onclick="copyPrompt(this)">Copy</button></div>
-  <p><small>Correct answers: phone <code><?= h($expected['Step 1 phone']) ?></code> · listing ID <code><?= h($expected['Step 3 listing ID']) ?></code> · views <code><?= h($expected['Step 3 views']) ?></code></small></p>
+  <p><small>Correct answers: phone <code><?= h($expected['Step 1 phone']) ?></code> · listing ID <code><?= h($expected['Step 3 listing ID']) ?></code> · views <code><?= h($expected['Step 3 views']) ?></code><?php if (isset($expected['Step 4 request ref'])): ?> · request ref <code><?= h($expected['Step 4 request ref']) ?></code><?php endif; ?></small></p>
 </div>
 
 <form method="post" action="/_muse?key=<?= $key ?>" class="card">
@@ -597,6 +603,9 @@ if ($loose): ?>
   <p><strong>User agents seen</strong></p>
   <?php foreach ($uas as $ua => $n): ?>
   <p><code><?= h($ua) ?></code> <small>×<?= $n ?></small></p>
+  <?php endforeach; ?>
+  <?php foreach ($rows as $r): if ($r['probe'] !== 'lead') { continue; } parse_str((string)$r['body'], $lf); ?>
+  <p>Quote request sent as: <code><?= h(trim(($lf['name'] ?? '') . ' · ' . ($lf['contact'] ?? '') . ' · ' . ($lf['postcode'] ?? ''), ' ·')) ?></code><?= !empty($lf['job']) ? '<br><small>' . h($lf['job']) . '</small>' : '' ?></p>
   <?php endforeach; ?>
   <?php foreach ($disclosures as [$where, $an, $aa]): ?>
   <p class="ok">Disclosed on <?= h($where) ?>: <strong><?= h($an ?: '(no name)') ?></strong><?= $aa !== '' ? ' · ' . h($aa) : '' ?></p>

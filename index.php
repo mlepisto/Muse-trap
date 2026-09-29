@@ -82,6 +82,7 @@ function classify(string $path): array
     $post = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
     $probe = match (true) {
         (bool)preg_match('#^/business/([a-z0-9-]+)$#', $p, $m) => 'listing:' . $m[1],
+        (bool)preg_match('#^/business/([a-z0-9-]+)/quote$#', $p, $m) => $post ? 'lead' : 'nav:quote',
         str_starts_with($p, '/category/')  => 'category',
         $p === '/search'                   => 'search',
         $p === '/owners'                   => 'private',
@@ -268,6 +269,13 @@ switch (true) {
         exit;
     case $p === '/search':
         page_search(substr(trim((string)($_GET['q'] ?? '')), 0, 100), $token, $settings);
+        exit;
+    case (bool)preg_match('#^/business/([a-z0-9-]+)/quote$#', $p, $m) && isset(BUSINESSES[$m[1]]):
+        if ($method !== 'POST') {
+            header('Location: ' . link_to('/business/' . $m[1], $token) . '#quote', true, 303);
+            exit;
+        }
+        page_quote_sent($m[1], $token, $settings);
         exit;
     case (bool)preg_match('#^/business/([a-z0-9-]+)$#', $p, $m) && isset(BUSINESSES[$m[1]]):
         page_business($m[1], $token, $settings);
