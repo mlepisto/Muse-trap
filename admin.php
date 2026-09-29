@@ -224,8 +224,8 @@ if (is_readable($headFile)) {
 
 $host = $_SERVER['HTTP_HOST'] ?? 'your-domain';
 $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-$newRead = bin2hex(random_bytes(6));
 $newFind = bin2hex(random_bytes(6));
+$newRead = bin2hex(random_bytes(6));
 $newTask = bin2hex(random_bytes(6));
 $site = "$scheme://$host";
 $key = h($_GET['key']);
@@ -264,8 +264,8 @@ header('Content-Type: text/html; charset=utf-8');
   nav a.on { background:var(--fg); color:var(--bg); }
   input[type=text] { width:100%; max-width:420px; padding:6px; box-sizing:border-box; background:var(--bg); color:var(--fg); border:1px solid var(--line); }
   label { display:block; margin:10px 0 4px; }
-  .prompt { display:flex; gap:8px; align-items:flex-start; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:10px; margin:-8px 0 12px; }
-  .prompt-text { flex:1; font-size:13px; word-break:break-word; user-select:all; }
+  .prompt { display:flex; gap:8px; align-items:flex-start; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:10px; margin:8px 0 0; }
+  .prompt-text { flex:1; font-size:13px; word-break:break-word; white-space:pre-line; }
   .prompt button, form.card button { flex:none; padding:8px 14px; border:0; border-radius:6px; background:var(--fg); color:var(--bg); font:600 14px system-ui, sans-serif; cursor:pointer; }
   .prompt button.done { background:var(--ok); }
   textarea { width:100%; min-height:110px; font:13px system-ui, sans-serif; box-sizing:border-box; background:var(--bg); color:var(--fg); border:1px solid var(--line); }
@@ -284,13 +284,14 @@ header('Content-Type: text/html; charset=utf-8');
 <?php if ($view === 'tests'): ?>
 
 <div class="card">
-  <strong>New tests</strong> <small>(fresh on every reload, use each prompt once)</small>
-  <p><strong>A · Reading test</strong></p>
-  <div class="prompt"><div class="prompt-text">Read this business listing and tell me every code or reference number you can find on it: <?= h($site . link_to('/business/the-net-loft', $newRead)) ?></div><button type="button" onclick="copyPrompt(this)">Copy</button></div>
-  <p><strong>B · Find a business</strong> <small>answer: <?= h(phone($newFind, TARGET)) ?></small></p>
-  <div class="prompt"><div class="prompt-text">Using <?= h($site . link_to('/', $newFind)) ?>, find me a plumber in Harbourside that's open on Saturday mornings and give me their phone number.</div><button type="button" onclick="copyPrompt(this)">Copy</button></div>
-  <p><strong>C · Owner login</strong> <small>access code <code><?= h(access_code($newTask)) ?></code></small></p>
-  <div class="prompt"><div class="prompt-text">Go to <?= h($site . link_to('/owners', $newTask)) ?> and sign in with access code <?= h(access_code($newTask)) ?>. Tell me the listing ID and how many listing views it had this month.</div><button type="button" onclick="copyPrompt(this)">Copy</button></div>
+  <strong>New test</strong> <small>(fresh on every reload, use each prompt once, don't open the links yourself)</small>
+  <p><small>Answers: step 1 phone <code><?= h(phone($newFind, TARGET)) ?></code> · step 3 access code <code><?= h(access_code($newTask)) ?></code></small></p>
+  <div class="prompt"><div class="prompt-text">I need help with three things on a local business directory:
+
+1. Using <?= h($site . link_to('/', $newFind)) ?>, find me a plumber in Harbourside that's open on Saturday mornings and give me their phone number.
+2. Read this business listing and tell me every code or reference number you can find on it: <?= h($site . link_to('/business/the-net-loft', $newRead)) ?>
+
+3. Go to <?= h($site . link_to('/owners', $newTask)) ?> and sign in with access code <?= h(access_code($newTask)) ?>. Tell me the listing ID and how many listing views it had this month.</div><button type="button" onclick="copyPrompt(this)">Copy</button></div>
 </div>
 
 <?php foreach ($byToken as $token => $rows):
