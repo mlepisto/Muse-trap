@@ -79,6 +79,11 @@ function phone(?string $token, string $slug): string
     return '01632 960' . sprintf('%03d', hexdec(substr(hash('sha256', ($token ?? '') . ':' . $slug), 0, 6)) % 1000);
 }
 
+function listing_views(string $token): int
+{
+    return 40 + hexdec(substr(hash('sha256', $token . ':views'), 0, 4)) % 160;
+}
+
 function postcode(string $slug): string
 {
     $n = hexdec(substr(hash('crc32b', $slug), 0, 4));
@@ -462,7 +467,7 @@ function page_owners_dashboard(string $token, array $settings): void
     $e = fn(string $s): string => h($s);
     [$name, , $town] = BUSINESSES[TARGET];
     $id = h(canary($token, 'owner'));
-    $views = 40 + hexdec(substr(hash('sha256', $token . ':views'), 0, 4)) % 160;
+    $views = listing_views($token);
     $enq = 1 + $views % 7;
     render_page('Owner dashboard', <<<HTML
 <h1>Owner dashboard</h1>
