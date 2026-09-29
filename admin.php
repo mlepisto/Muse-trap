@@ -22,6 +22,41 @@ if (!$authed) {
     exit;
 }
 
+$view = (string)($_GET['view'] ?? 'tests');
+$keyParam = rawurlencode($given);
+
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && ($_POST['action'] ?? '') === 'settings') {
+    $settings = [
+        'ga4_id'     => trim((string)($_POST['ga4_id'] ?? '')),
+        'ga4_secret' => trim((string)($_POST['ga4_secret'] ?? '')),
+        'ga4_mp'     => !empty($_POST['ga4_mp']),
+    ];
+    if (!is_dir($DATA_DIR)) {
+        @mkdir($DATA_DIR, 0750, true);
+    }
+    $ok = file_put_contents($SETTINGS_FILE, json_encode($settings, JSON_PRETTY_PRINT), LOCK_EX) !== false;
+    header('Location: /_muse?key=' . $keyParam . '&view=settings&saved=' . ($ok ? 1 : 0), true, 303);
+    exit;
+}
+
+// Last $bytes of a file as lines, newest last.
+function tail_lines(string $file, int $bytes = 262144): array
+{
+    $size = @filesize($file);
+    if (!$size) {
+        return [];
+    }
+    $fh = fopen($file, 'rb');
+    fseek($fh, max(0, $size - $bytes));
+    $data = stream_get_contents($fh);
+    fclose($fh);
+    $lines = explode("\n", rtrim((string)$data, "\n"));
+    if ($size > $bytes) {
+        array_shift($lines); // first line is probably cut off
+    }
+    return $lines;
+}
+
 if (($_GET['format'] ?? '') === 'jsonl') {
     header('Content-Type: application/x-ndjson');
     header('Content-Disposition: attachment; filename="hits.jsonl"');
@@ -82,8 +117,12 @@ function enrich_ip(string $ip): array
 
 $ipCache = is_file($IP_CACHE) ? (json_decode((string)file_get_contents($IP_CACHE), true) ?: []) : [];
 $cacheDirty = false;
-$ipInfo = function (string $ip) use (&$ipCache, &$cacheDirty): array {
+$lookupBudget = 25; // DNS lookups per page load, the rest fill in on reload
+$ipInfo = function (string $ip) use (&$ipCache, &$cacheDirty, &$lookupBudget): array {
     if (!isset($ipCache[$ip])) {
+        if ($lookupBudget-- <= 0) {
+            return ['rdns' => null, 'fcrdns' => false, 'asn' => null, 'prefix' => null, 'cc' => null, 'as_name' => null, 'pending' => true];
+        }
         $ipCache[$ip] = enrich_ip($ip);
         $cacheDirty = true;
     }
@@ -127,6 +166,9 @@ $hdr = function (array $r, string $name): string {
 
 $ipLabel = function (string $ip) use ($ipInfo): string {
     $i = $ipInfo($ip);
+    if (!empty($i['pending'])) {
+        return h($ip) . '<br><small>lookup pending, reload</small>';
+    }
     $as = $i['asn'] ? 'AS' . $i['asn'] . ' ' . ($i['as_name'] ?? '') : 'ASN unknown';
     $dns = $i['rdns'] ? $i['rdns'] . ($i['fcrdns'] ? ' ✓' : ' ✗ not forward-confirmed') : 'no rDNS';
     return h($ip) . '<br><small>' . h($as) . '<br>' . h($dns) . '</small>';
@@ -144,6 +186,10 @@ $PROBES = [
     'next'    => 'Followed link to part two',
     'private' => 'Fetched robots-disallowed page',
 ];
+if (!empty($settings['ga4_id'])) {
+    $PROBES['ga:loaded'] = 'GA4 script loaded';
+    $PROBES['ga:sent']   = 'GA4 hit sent (check GA4 for token)';
+}
 $CANARIES = ['static', 'meta', 'comment', 'alt', 'hidden', 'noscript', 'js', 'jslate', 'next', 'private'];
 
 $host = $_SERVER['HTTP_HOST'] ?? 'your-domain';
@@ -175,13 +221,30 @@ header('Content-Type: text/html; charset=utf-8');
   small { color:var(--muted); }
   .ok { color:var(--ok); } .no { color:var(--no); }
   ul.checks { list-style:none; padding:0; columns:2; } @media (max-width:640px) { ul.checks { columns:1; } }
+  @media (max-width:640px) {
+    table.stack tr:first-child { display:none; }
+    table.stack tr { display:block; padding:8px 0; border-bottom:1px solid var(--line); }
+    table.stack td { display:block; border:0; padding:2px 0; }
+  }
+  nav { display:flex; gap:4px; flex-wrap:wrap; margin-bottom:8px; }
+  nav a { padding:6px 12px; border:1px solid var(--line); border-radius:6px; text-decoration:none; color:var(--fg); }
+  nav a.on { background:var(--fg); color:var(--bg); }
+  input[type=text] { width:100%; max-width:420px; padding:6px; box-sizing:border-box; background:var(--bg); color:var(--fg); border:1px solid var(--line); }
+  label { display:block; margin:10px 0 4px; }
   textarea { width:100%; min-height:70px; box-sizing:border-box; background:var(--bg); color:var(--fg); border:1px solid var(--line); }
 </style>
 </head>
 <body>
 <main>
 <h1>Muse trap</h1>
-<p><?= count($hits) ?> requests logged. <a href="?key=<?= $key ?>&format=jsonl">Download raw log</a></p>
+<nav>
+<?php foreach (['tests' => 'Tests', 'log' => 'Request log', 'nginx' => 'nginx log', 'settings' => 'Settings'] as $v => $label): ?>
+  <a href="/_muse?key=<?= $key ?>&view=<?= $v ?>"<?= $view === $v ? ' class="on"' : '' ?>><?= $label ?></a>
+<?php endforeach; ?>
+</nav>
+<p><?= count($hits) ?> requests logged. <a href="/_muse?key=<?= $key ?>&format=jsonl">Download raw log</a></p>
+
+<?php if ($view === 'tests'): ?>
 
 <div class="card">
   <strong>New test URL</strong> (reload for another, use each once):<br>
@@ -189,7 +252,13 @@ header('Content-Type: text/html; charset=utf-8');
 </div>
 
 <?php foreach ($byToken as $token => $rows):
-    $seen = array_count_values(array_map(fn($r) => $r['probe'], $rows));
+    $seen = array_count_values(array_map(function ($r) {
+        if ($r['probe'] === 'ga') {
+            parse_str((string)parse_url($r['uri'], PHP_URL_QUERY), $q);
+            return 'ga:' . ($q['stage'] ?? '');
+        }
+        return $r['probe'];
+    }, $rows));
     $t0 = $rows[0]['t'];
     $ips = array_unique(array_column($rows, 'ip'));
     $asns = array_unique(array_filter(array_map(fn($ip) => $ipInfo($ip)['asn'], $ips)));
@@ -205,6 +274,9 @@ header('Content-Type: text/html; charset=utf-8');
   <?php foreach ($PROBES as $p => $label): ?>
     <li class="<?= isset($seen[$p]) ? 'ok' : 'no' ?>"><?= isset($seen[$p]) ? '✓' : '✗' ?> <?= h($label) ?><?= ($seen[$p] ?? 0) > 1 ? ' ×' . $seen[$p] : '' ?></li>
   <?php endforeach; ?>
+  <?php if (isset($seen['ga:blocked'])): ?>
+    <li class="no">⚠ GA4 script blocked or failed to load</li>
+  <?php endif; ?>
     <li class="<?= $robotsNear ? 'ok' : 'no' ?>"><?= $robotsNear ? '✓' : '✗' ?> Checked robots.txt (same IP/ASN, ±10 min)</li>
   </ul>
 
@@ -217,7 +289,7 @@ header('Content-Type: text/html; charset=utf-8');
   </details>
 </div>
 
-<div class="wrap"><table>
+<div class="wrap"><table class="stack">
 <tr><th>+s</th><th>Probe</th><th>IP / network</th><th>User-Agent &amp; headers</th></tr>
 <?php foreach ($rows as $r): ?>
 <tr>
@@ -253,6 +325,85 @@ header('Content-Type: text/html; charset=utf-8');
 <?php endforeach; ?>
 </table></div>
 </details>
+
+<?php elseif ($view === 'log'):
+    $q = trim((string)($_GET['q'] ?? ''));
+    $lines = array_reverse(tail_lines($LOG_FILE, 4 * 1024 * 1024));
+    $shown = 0;
+?>
+<form method="get" action="/_muse">
+  <input type="hidden" name="key" value="<?= $key ?>"><input type="hidden" name="view" value="log">
+  <input type="text" name="q" value="<?= h($q) ?>" placeholder="Filter: IP, user agent, token, path…">
+</form>
+<p><small>Newest first. Up to 200 entries from the last 4 MB of <code><?= h($LOG_FILE) ?></code>.</small></p>
+<div class="wrap"><table class="stack">
+<tr><th>Time (UTC)</th><th>Request</th><th>IP / network</th><th>User-Agent</th></tr>
+<?php foreach ($lines as $line):
+    if ($q !== '' && stripos($line, $q) === false) { continue; }
+    $r = json_decode($line, true);
+    if (!is_array($r)) { continue; }
+    if (++$shown > 200) { break; }
+?>
+<tr>
+  <td><?= h(substr($r['iso'], 11, 8)) ?> <small><?= h(substr($r['iso'], 5, 5)) ?></small></td>
+  <td><code><?= h($r['method'] . ' ' . $r['uri']) ?></code>
+    <details><summary><small><?= count($r['headers']) ?> headers</small></summary>
+      <pre><?php foreach ($r['headers'] as [$k, $v]) { echo h("$k: $v") . "\n"; } ?><?= $r['body'] ? "\n" . h($r['body']) : '' ?></pre>
+    </details></td>
+  <td><?= $ipLabel($r['ip']) ?></td>
+  <td><small><?= h($hdr($r, 'User-Agent')) ?></small></td>
+</tr>
+<?php endforeach; ?>
+</table></div>
+<?php if (!$shown): ?><p>No matching entries.</p><?php endif; ?>
+
+<?php elseif ($view === 'nginx'):
+    $q = trim((string)($_GET['q'] ?? ''));
+    $candidates = array_unique(array_merge(
+        glob(dirname(__DIR__) . '/logs/*access*.log') ?: [],
+        glob(dirname(__DIR__) . '/logs/*error*.log') ?: []
+    ));
+    $which = (string)($_GET['file'] ?? '');
+    $file = in_array($which, $candidates, true) ? $which : ($candidates[0] ?? null);
+?>
+<?php if (!$candidates): ?>
+  <p>No readable nginx logs found in <code><?= h(dirname(__DIR__) . '/logs/') ?></code>.</p>
+<?php else: ?>
+<form method="get" action="/_muse">
+  <input type="hidden" name="key" value="<?= $key ?>"><input type="hidden" name="view" value="nginx">
+  <select name="file" onchange="this.form.submit()">
+  <?php foreach ($candidates as $c): ?><option value="<?= h($c) ?>"<?= $c === $file ? ' selected' : '' ?>><?= h(basename($c)) ?></option><?php endforeach; ?>
+  </select>
+  <input type="text" name="q" value="<?= h($q) ?>" placeholder="Filter…">
+</form>
+<p><small>Newest first, last 500 lines. This catches anything nginx answered without running PHP.</small></p>
+<pre><?php
+    $n = 0;
+    foreach (array_reverse(tail_lines($file, 1024 * 1024)) as $line) {
+        if ($q !== '' && stripos($line, $q) === false) { continue; }
+        if (++$n > 500) { break; }
+        echo h($line) . "\n";
+    }
+?></pre>
+<?php endif; ?>
+
+<?php elseif ($view === 'settings'): ?>
+<?php if (isset($_GET['saved'])): ?>
+  <p class="<?= $_GET['saved'] ? 'ok' : 'no' ?>"><?= $_GET['saved'] ? 'Saved.' : 'Could not write ' . h($SETTINGS_FILE) ?></p>
+<?php endif; ?>
+<form method="post" action="/_muse?key=<?= $key ?>&view=settings" class="card">
+  <input type="hidden" name="action" value="settings">
+  <strong>GA4</strong>
+  <label for="ga4_id">Measurement ID <small>(G-XXXXXXX). Adds the GA4 tag to test pages.</small></label>
+  <input type="text" id="ga4_id" name="ga4_id" value="<?= h($settings['ga4_id'] ?? '') ?>">
+  <label for="ga4_secret">Measurement Protocol API secret <small>(Admin → Data streams → your stream → Measurement Protocol API secrets)</small></label>
+  <input type="text" id="ga4_secret" name="ga4_secret" value="<?= h($settings['ga4_secret'] ?? '') ?>">
+  <label><input type="checkbox" name="ga4_mp" value="1"<?= !empty($settings['ga4_mp']) ? ' checked' : '' ?>>
+    Also send every logged request to GA4 server-side as an <code>agent_request</code> event</label>
+  <p><button type="submit">Save</button></p>
+</form>
+<p><small>Data folder: <code><?= h($DATA_DIR) ?></code></small></p>
+<?php endif; ?>
 </main>
 <script>
 function checkReply(el) {

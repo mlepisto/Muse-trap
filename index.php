@@ -13,11 +13,24 @@ $ADMIN_KEY = $config['admin_key'] ?? '';
 // bcrypt hash of the admin key, so no server-side config file is needed.
 // config.php's admin_key, if set, takes precedence.
 $ADMIN_KEY_HASH = $config['admin_key_hash'] ?? '$2y$12$Xmdhmp6sSQcBu60WJSSXXe6YECMrpE9NrpcwJ.lkdF.MSk8Tivea6';
-$DATA_DIR  = $config['data_dir'] ?? dirname(__DIR__) . '/muse-data';
+$DATA_DIR  = $config['data_dir'] ?? pick_data_dir();
 $LOG_FILE  = $DATA_DIR . '/hits.jsonl';
 $IP_CACHE  = $DATA_DIR . '/ipcache.json';
+$SETTINGS_FILE = $DATA_DIR . '/settings.json';
+$settings = is_file($SETTINGS_FILE) ? (json_decode((string)file_get_contents($SETTINGS_FILE), true) ?: []) : [];
 
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+
+// Prefer a folder next to the web root. Fall back to a hidden folder inside
+// it, which nginx on SpinupWP refuses to serve.
+function pick_data_dir(): string
+{
+    $outside = dirname(__DIR__) . '/muse-data';
+    if (is_dir($outside) ? is_writable($outside) : is_writable(dirname(__DIR__))) {
+        return $outside;
+    }
+    return __DIR__ . '/.muse-data';
+}
 
 // ---------------------------------------------------------------- logging
 
@@ -51,7 +64,7 @@ function classify(string $path): array
     return [null, null];
 }
 
-function log_hit(string $file, string $dir, string $path): void
+function log_hit(string $file, string $dir, string $path): array
 {
     if (!is_dir($dir)) {
         @mkdir($dir, 0750, true);
@@ -74,6 +87,41 @@ function log_hit(string $file, string $dir, string $path): void
         'body'   => $body === '' || $body === false ? null : $body,
     ];
     file_put_contents($file, json_encode($rec, JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
+    return $rec;
+}
+
+// Server-side copy of every request into GA4 as an `agent_request` event.
+// Runs after the response is sent so it never slows the visitor down.
+function ga4_send_hit(array $settings, array $rec): void
+{
+    if (empty($settings['ga4_mp']) || empty($settings['ga4_id']) || empty($settings['ga4_secret'])) {
+        return;
+    }
+    $ua = '';
+    foreach ($rec['headers'] as [$k, $v]) {
+        if ($k === 'User-Agent') {
+            $ua = $v;
+        }
+    }
+    $payload = [
+        'client_id' => sprintf('%u.%u', crc32($rec['ip'] . '|' . $ua), crc32($ua)),
+        'events' => [[
+            'name' => 'agent_request',
+            'params' => [
+                'probe'      => $rec['probe'] ?? 'other',
+                'token'      => $rec['token'] ?? '',
+                'path'       => substr((string)parse_url($rec['uri'], PHP_URL_PATH), 0, 100),
+                'user_agent' => substr($ua, 0, 100),
+                'engagement_time_msec' => 1,
+            ],
+        ]],
+    ];
+    $url = 'https://www.google-analytics.com/mp/collect?measurement_id=' . rawurlencode($settings['ga4_id'])
+         . '&api_secret=' . rawurlencode($settings['ga4_secret']);
+    @file_get_contents($url, false, stream_context_create(['http' => [
+        'method' => 'POST', 'header' => "Content-Type: application/json\r\n",
+        'content' => json_encode($payload), 'timeout' => 3,
+    ]]));
 }
 
 function canary(string $token, string $kind): string
@@ -99,7 +147,13 @@ if ($path === '/_muse' || $path === '/_muse/') {
     exit;
 }
 
-log_hit($LOG_FILE, $DATA_DIR, $path);
+$hit = log_hit($LOG_FILE, $DATA_DIR, $path);
+register_shutdown_function(function () use ($settings, $hit) {
+    if (function_exists('fastcgi_finish_request')) {
+        fastcgi_finish_request();
+    }
+    ga4_send_hit($settings, $hit);
+});
 no_cache();
 
 // ---------------------------------------------------------------- probes
@@ -148,6 +202,7 @@ switch ($probe) {
         exit;
 
     case 'beacon':
+    case 'ga':
         http_response_code(204);
         exit;
 
@@ -187,6 +242,18 @@ header('Content-Type: text/html; charset=utf-8');
 <title>Field notes on coastal lighthouses</title>
 <meta name="description" content="Lighthouse survey notes. Survey code <?= $c('meta') ?>.">
 <link rel="stylesheet" href="/t/<?= $t ?>/css">
+<?php if (!empty($settings['ga4_id'])): $ga = h($settings['ga4_id']); ?>
+<script>
+  // GA4 tag, with pings back to us at each stage so the log shows how far it got.
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  function gaPing(stage){ try { navigator.sendBeacon('/t/<?= $t ?>/ga?stage=' + stage); } catch (e) {} }
+  gtag('js', new Date());
+  gtag('config', '<?= $ga ?>');
+  gtag('event', 'probe_view', {token: '<?= $t ?>', event_callback: function(){ gaPing('sent'); }});
+</script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=<?= $ga ?>" onload="gaPing('loaded')" onerror="gaPing('blocked')"></script>
+<?php endif; ?>
 </head>
 <body>
 <!-- Archive reference: <?= $c('comment') ?> -->
