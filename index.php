@@ -230,6 +230,7 @@ if (str_starts_with($path, '/t/')) {
             exit;
         case 'beacon':
         case 'ga':
+        case 'disclose-open':
             http_response_code(204);
             exit;
         case 'legacy':
@@ -273,6 +274,9 @@ switch (true) {
         exit;
     case $p === '/about':
         page_about($token, $settings);
+        exit;
+    case $p === '/agent-terms':
+        page_agent_terms($token, $settings);
         exit;
     case $p === '/contact':
         page_contact($token, $settings, $method === 'POST');
