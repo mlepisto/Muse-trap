@@ -11,6 +11,7 @@ if (!isset($LOG_FILE)) {
 }
 
 no_cache();
+header('X-Robots-Tag: noindex, nofollow');
 
 $given = (string)($_GET['key'] ?? '');
 $useKey = $ADMIN_KEY !== '' && $ADMIN_KEY !== 'change-me';
