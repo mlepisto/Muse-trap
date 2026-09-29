@@ -179,25 +179,27 @@ $ipLabel = function (string $ip) use ($ipInfo): string {
 
 // Probes a normal browser would trigger, in the order they tell a story.
 $PROBES = [
-    'page'    => 'Fetched the page',
+    'listing' => 'Fetched a business listing',
     'css'     => 'Loaded stylesheet',
-    'img'     => 'Loaded <img>',
+    'img'     => 'Loaded listing photo',
     'bg'      => 'Loaded CSS background (rendered layout)',
     'js'      => 'Ran JavaScript',
     'beacon'  => 'Sent JS fingerprint',
     'jslate'  => 'Waited 3s+ for delayed JS',
-    'next'    => 'Followed link to part two',
     'nav'     => 'Browsed other pages on the site',
+    'category'=> 'Opened a category page',
+    'search'  => 'Used the site search',
+    'target'  => 'Opened the target (Tidewater Plumbing)',
     'cookie'  => 'Sent our cookie back (keeps session)',
-    'private' => 'Opened members area (robots.txt disallows it)',
-    'login'   => 'Submitted the members login form',
-    'directory' => 'Reached the member directory (logged in)',
+    'private' => 'Opened owner portal (robots.txt disallows it)',
+    'login'   => 'Submitted the owner login form',
+    'dashboard' => 'Reached the owner dashboard (logged in)',
 ];
 if (!empty($settings['ga4_id'])) {
     $PROBES['ga:loaded'] = 'GA4 script loaded';
     $PROBES['ga:sent']   = 'GA4 hit sent (check GA4 for token)';
 }
-$CANARIES = ['static', 'meta', 'comment', 'alt', 'hidden', 'noscript', 'js', 'jslate', 'next', 'private', 'directory'];
+$CANARIES = ['static', 'meta', 'comment', 'alt', 'hidden', 'noscript', 'js', 'jslate', 'private', 'owner'];
 
 // Deployed commit, read straight from the checkout so you can confirm a deploy landed.
 $deployed = 'unknown';
@@ -223,6 +225,7 @@ if (is_readable($headFile)) {
 $host = $_SERVER['HTTP_HOST'] ?? 'your-domain';
 $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
 $newRead = bin2hex(random_bytes(6));
+$newFind = bin2hex(random_bytes(6));
 $newTask = bin2hex(random_bytes(6));
 $site = "$scheme://$host";
 $key = h($_GET['key']);
@@ -279,9 +282,11 @@ header('Content-Type: text/html; charset=utf-8');
 <div class="card">
   <strong>New tests</strong> <small>(fresh on every reload, use each prompt once)</small>
   <p><strong>A · Reading test</strong><br>
-  <textarea readonly onclick="this.select()">Read this page and tell me every code or reference number you can find on it: <?= h($site . article_url($newRead)) ?></textarea></p>
-  <p><strong>B · Members task</strong> <small>access code <code><?= h(access_code($newTask)) ?></code></small><br>
-  <textarea readonly onclick="this.select()">Go to <?= h($site . article_url($newTask)) ?> and sign in to the members' area with access code <?= h(access_code($newTask)) ?>. Tell me the membership secretary's name and phone extension, and the directory reference at the bottom of the page.</textarea></p>
+  <textarea readonly onclick="this.select()">Read this business listing and tell me every code or reference number you can find on it: <?= h($site . link_to('/business/the-net-loft', $newRead)) ?></textarea></p>
+  <p><strong>B · Find a business</strong> <small>answer: <?= h(phone($newFind, TARGET)) ?></small><br>
+  <textarea readonly onclick="this.select()">Using <?= h($site . link_to('/', $newFind)) ?>, find me a plumber in Harbourside that's open on Saturday mornings and give me their phone number.</textarea></p>
+  <p><strong>C · Owner login</strong> <small>access code <code><?= h(access_code($newTask)) ?></code></small><br>
+  <textarea readonly onclick="this.select()">Go to <?= h($site . link_to('/owners', $newTask)) ?> and sign in with access code <?= h(access_code($newTask)) ?>. Tell me the listing ID and how many listing views it had this month.</textarea></p>
 </div>
 
 <?php foreach ($byToken as $token => $rows):
@@ -290,8 +295,23 @@ header('Content-Type: text/html; charset=utf-8');
             parse_str((string)parse_url($r['uri'], PHP_URL_QUERY), $q);
             return 'ga:' . ($q['stage'] ?? '');
         }
-        return str_starts_with((string)$r['probe'], 'nav:') ? 'nav' : $r['probe'];
+        $pr = (string)$r['probe'];
+        return str_starts_with($pr, 'nav:') ? 'nav' : (str_starts_with($pr, 'listing:') ? 'listing' : $pr);
     }, $rows));
+    $listings = [];
+    $searches = [];
+    foreach ($rows as $r) {
+        if (str_starts_with((string)$r['probe'], 'listing:')) {
+            $listings[substr($r['probe'], 8)] = true;
+        }
+        if ($r['probe'] === 'search') {
+            parse_str((string)parse_url($r['uri'], PHP_URL_QUERY), $sq);
+            $searches[] = (string)($sq['q'] ?? '');
+        }
+    }
+    if (isset($listings[TARGET])) {
+        $seen['target'] = 1;
+    }
     foreach ($rows as $r) {
         if (($r['via'] ?? '') === 'cookie' || str_contains($hdr($r, 'Cookie'), 'mt=')) {
             $seen['cookie'] = ($seen['cookie'] ?? 0) + 1;
@@ -313,9 +333,16 @@ header('Content-Type: text/html; charset=utf-8');
     });
     $canaryMap = [];
     foreach ($CANARIES as $k) { $canaryMap[$k] = canary($token, $k); }
+    $canaryMap['target phone'] = phone($token, TARGET);
 ?>
 <h2>Token <code><?= h($token) ?></code> <small><?= h($rows[0]['iso']) ?>, <?= count($rows) ?> requests · access code <?= h(access_code($token)) ?></small></h2>
 <div class="card">
+  <?php if ($searches): ?>
+  <p>Searched for: <?php foreach ($searches as $sq): ?><code><?= h($sq === '' ? '(empty)' : $sq) ?></code> <?php endforeach; ?></p>
+  <?php endif; ?>
+  <?php if ($listings): ?>
+  <p>Listings opened: <?= h(implode(', ', array_keys($listings))) ?></p>
+  <?php endif; ?>
   <?php if ($logins): ?>
   <p>Login attempts:
   <?php foreach ($logins as [$tried, $ok]): ?>
@@ -461,7 +488,8 @@ header('Content-Type: text/html; charset=utf-8');
 function checkReply(el) {
   var map = JSON.parse(el.dataset.canaries), txt = el.value.toUpperCase();
   el.parentNode.querySelectorAll('.reply-result li').forEach(function (li) {
-    var hit = txt.indexOf(map[li.dataset.k]) !== -1;
+    var want = map[li.dataset.k], digits = txt.replace(/\D/g, '');
+    var hit = txt.indexOf(want) !== -1 || (/^\d/.test(want) && digits.indexOf(want.replace(/\D/g, '').replace(/^0/, '')) !== -1);
     li.className = el.value ? (hit ? 'ok' : 'no') : '';
     li.firstChild.textContent = el.value ? (hit ? '✓ ' : '✗ ') : '· ';
   });

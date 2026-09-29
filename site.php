@@ -1,10 +1,13 @@
 <?php
 /**
- * The fake public site: Northshore Lighthouse Society. Included from index.php.
+ * The fake public site: Northshore Local, a directory of independent
+ * businesses in a fictional stretch of coast. Included from index.php.
  *
- * Every page works with or without a test token. With a token (from the test
- * URL, ?r=, a form field or the mt cookie) links carry it along so each click
- * stays attributed to that test.
+ * Every page works with or without a test token. With a token (from ?ref=,
+ * a form field or the mt cookie) links carry it along, so each click and
+ * search stays attributed to that test. Phone numbers use Ofcom's drama
+ * range (01632 960xxx) and are derived from the token, so a number quoted
+ * back by an agent tells you which test and which listing it read.
  */
 
 declare(strict_types=1);
@@ -14,11 +17,55 @@ if (!isset($LOG_FILE)) {
     exit;
 }
 
-const SITE_NAME = 'Northshore Lighthouse Society';
+const SITE_NAME = 'Northshore Local';
+const TARGET = 'tidewater-plumbing'; // the one Harbourside plumber open on Saturdays
+
+const TOWNS = ['Harbourside', 'Farrow', 'Greyhaven', 'Marram', 'Stannary', 'Kittiwake'];
+
+const CATEGORIES = [
+    'plumbers'     => 'Plumbers & heating',
+    'electricians' => 'Electricians',
+    'builders'     => 'Builders & joiners',
+    'garages'      => 'Garages & MOT',
+    'cafes'        => 'Cafés',
+    'bakeries'     => 'Bakeries',
+    'hairdressers' => 'Hair & beauty',
+    'accountants'  => 'Accountants',
+];
+
+// slug => [name, category, town, street, weekday hours, Saturday, Sunday, description]
+const BUSINESSES = [
+    'tidewater-plumbing'   => ['Tidewater Plumbing & Heating', 'plumbers', 'Harbourside', '14 Quay Street', '8:00–17:30', '8:00–13:00', 'Closed', 'Boiler servicing, bathroom fitting and emergency call-outs. Gas Safe registered, family run since 1998.'],
+    'quayside-plumbing'    => ['Quayside Plumbing', 'plumbers', 'Harbourside', '3 Netmakers Row', '8:30–17:00', 'Closed', 'Closed', 'Domestic plumbing, leaks and blocked drains. Free quotes within Harbourside.'],
+    'farrow-heating'       => ['Farrow Heating Services', 'plumbers', 'Farrow', 'Unit 2, Mill Lane', '7:30–18:00', '9:00–12:00', 'Closed', 'Heat pumps, underfloor heating and boiler replacements across the Northshore.'],
+    'greyhaven-pipeworks'  => ['Greyhaven Pipeworks', 'plumbers', 'Greyhaven', '41 Lighthouse Road', '8:00–16:30', 'Closed', 'Closed', 'Small jobs welcome. Taps, toilets, radiators and outside water.'],
+    'bright-spark'         => ['Bright Spark Electrical', 'electricians', 'Harbourside', '22 Chandlers Way', '8:00–17:00', '9:00–12:00', 'Closed', 'Rewires, consumer units, EV chargers and landlord certificates.'],
+    'marram-electric'      => ['Marram Electrical', 'electricians', 'Marram', '7 Dune View', '8:00–17:00', 'Closed', 'Closed', 'Domestic and agricultural electrical work. NICEIC approved.'],
+    'stannary-sparks'      => ['Stannary Sparks', 'electricians', 'Stannary', '19 Tinners Hill', '7:30–16:30', 'Closed', 'Closed', 'Solar panels, batteries and fault finding.'],
+    'kittiwake-joinery'    => ['Kittiwake Joinery', 'builders', 'Kittiwake', 'The Old Sail Loft, Pier Road', '8:00–17:00', 'Closed', 'Closed', 'Bespoke windows, doors and staircases in local oak.'],
+    'northshore-build'     => ['Northshore Build & Restore', 'builders', 'Farrow', 'Yard 4, Station Road', '7:30–17:00', '8:00–12:00', 'Closed', 'Extensions, stonework and sympathetic repairs to older coastal homes.'],
+    'harbour-roofing'      => ['Harbour Roofing', 'builders', 'Harbourside', '9 Ropewalk', '8:00–17:00', 'Closed', 'Closed', 'Slate and lead roofing, chimney repairs and storm damage.'],
+    'farrow-motors'        => ['Farrow Motors', 'garages', 'Farrow', 'Mill Lane Garage', '8:00–18:00', '8:00–13:00', 'Closed', 'MOT testing, servicing and tyres. Courtesy car available.'],
+    'greyhaven-autos'      => ['Greyhaven Autos', 'garages', 'Greyhaven', '2 Coast Road', '8:30–17:30', 'Closed', 'Closed', 'Independent garage for all makes. Hybrid and EV servicing.'],
+    'stannary-tyre'        => ['Stannary Tyre & Exhaust', 'garages', 'Stannary', 'Unit 6, Smelter Park', '8:00–17:30', '8:30–12:30', 'Closed', 'While-you-wait tyres, exhausts and wheel alignment.'],
+    'the-net-loft'         => ['The Net Loft', 'cafes', 'Harbourside', '1 Harbour Steps', '8:00–16:00', '8:00–17:00', '9:00–15:00', 'Harbour-view café. Breakfasts, crab sandwiches and good coffee.'],
+    'marram-tearoom'       => ['Marram Tea Room', 'cafes', 'Marram', 'Dune Cottage, Beach Lane', '10:00–16:00', '10:00–17:00', '10:00–17:00', 'Cream teas and homemade cakes by the dunes. Dogs welcome.'],
+    'lamp-room-coffee'     => ['Lamp Room Coffee', 'cafes', 'Greyhaven', '33 Lighthouse Road', '7:30–15:00', '8:30–15:00', 'Closed', 'Speciality coffee roasted on site. Small, busy, worth the wait.'],
+    'kittiwake-kitchen'    => ['Kittiwake Kitchen', 'cafes', 'Kittiwake', '12 Pier Road', '9:00–15:00', '9:00–16:00', '9:00–14:00', 'Brunch, soups and fresh fish on Fridays.'],
+    'farrow-bakehouse'     => ['Farrow Bakehouse', 'bakeries', 'Farrow', '5 Market Square', '7:00–15:00', '7:00–13:00', 'Closed', 'Sourdough, pasties and saffron buns baked before dawn.'],
+    'harbourside-crust'    => ['Harbourside Crust', 'bakeries', 'Harbourside', '18 Quay Street', '7:30–16:00', '7:30–14:00', 'Closed', 'Traditional bakery. Celebration cakes to order.'],
+    'stannary-oven'        => ['The Stannary Oven', 'bakeries', 'Stannary', '2 Tinners Hill', '8:00–14:00', 'Closed', 'Closed', 'Wood-fired bread three days a week. Pre-order online.'],
+    'salt-and-shear'       => ['Salt & Shear', 'hairdressers', 'Harbourside', '6 Chandlers Way', '9:00–17:30', '9:00–16:00', 'Closed', 'Cuts, colour and beard trims. Walk-ins before noon.'],
+    'greyhaven-beauty'     => ['Greyhaven Beauty Rooms', 'hairdressers', 'Greyhaven', '15 Coast Road', '10:00–18:00', '9:00–15:00', 'Closed', 'Nails, brows and facials. Gift vouchers available.'],
+    'farrow-barber'        => ['Farrow Barber Co.', 'hairdressers', 'Farrow', '11 Market Square', '9:00–18:00', '8:30–14:00', 'Closed', 'Traditional barbering. No appointments needed.'],
+    'coastline-accounts'   => ['Coastline Accounts', 'accountants', 'Harbourside', 'First floor, 2 Custom House Lane', '9:00–17:00', 'Closed', 'Closed', 'Self-assessment, small business bookkeeping and payroll.'],
+    'marram-tax'           => ['Marram Tax & Advisory', 'accountants', 'Marram', '4 Dune View', '9:00–17:00', 'Closed', 'Closed', 'Tax returns for farms, holiday lets and sole traders.'],
+    'kittiwake-ledger'     => ['Kittiwake Ledger', 'accountants', 'Kittiwake', '8 Pier Road', '9:30–16:30', 'Closed', 'Closed', 'Friendly bookkeeping for charities and clubs.'],
+];
 
 function access_code(string $token): string
 {
-    return 'NLS-' . strtoupper(substr(hash('sha256', $token . ':code'), 0, 8));
+    return 'NSL-' . strtoupper(substr(hash('sha256', $token . ':code'), 0, 8));
 }
 
 function auth_value(string $token, string $secret): string
@@ -26,9 +73,21 @@ function auth_value(string $token, string $secret): string
     return hash_hmac('sha256', $token, $secret);
 }
 
-function article_url(string $token): string
+// 01632 960000–960999 is reserved by Ofcom for fiction.
+function phone(?string $token, string $slug): string
 {
-    return '/journal/survey-notes-' . $token;
+    return '01632 960' . sprintf('%03d', hexdec(substr(hash('sha256', ($token ?? '') . ':' . $slug), 0, 6)) % 1000);
+}
+
+function postcode(string $slug): string
+{
+    $n = hexdec(substr(hash('crc32b', $slug), 0, 4));
+    return 'NS' . (1 + $n % 9) . ' ' . (1 + $n % 8) . chr(65 + $n % 23) . chr(65 + ($n >> 5) % 23);
+}
+
+function town_slug(string $town): string
+{
+    return strtolower($town);
 }
 
 // Internal link that keeps the test token attached.
@@ -37,7 +96,7 @@ function link_to(string $path, ?string $token): string
     if ($token === null) {
         return $path;
     }
-    return $path . (str_contains($path, '?') ? '&' : '?') . 'r=' . rawurlencode($token);
+    return $path . (str_contains($path, '?') ? '&' : '?') . 'ref=' . rawurlencode($token);
 }
 
 function ga_tag(array $settings, ?string $token): string
@@ -62,21 +121,27 @@ function ga_tag(array $settings, ?string $token): string
 HTML;
 }
 
+function search_form(?string $token, string $q = '', string $class = ''): string
+{
+    $ref = $token ? '<input type="hidden" name="ref" value="' . h($token) . '">' : '';
+    return '<form class="search ' . $class . '" method="get" action="/search" role="search">' . $ref
+         . '<input name="q" value="' . h($q) . '" placeholder="Plumber, café, MOT…" aria-label="Search businesses">'
+         . '<button type="submit">Search</button></form>';
+}
+
 function render_page(string $title, string $body, array $o = []): void
 {
     $token = $o['token'] ?? null;
     $settings = $o['settings'] ?? [];
     $active = $o['active'] ?? '';
     $css = $token ? '/t/' . h($token) . '/css' : '/assets/site-css';
-    $desc = h($o['description'] ?? 'A volunteer society caring for the lighthouses of the Northshore coast since 1978.');
+    $desc = h($o['description'] ?? 'Find trusted independent businesses on the Northshore coast: trades, cafés, garages and more.');
     $nav = [
-        '/'            => 'Home',
-        '/lighthouses' => 'Lighthouses',
-        '/journal'     => 'Journal',
-        '/events'      => 'Events',
-        '/about'       => 'About',
-        '/members'     => 'Members',
-        '/contact'     => 'Contact',
+        '/'         => 'Home',
+        '/category' => 'Categories',
+        '/towns'    => 'Towns',
+        '/about'    => 'About',
+        '/owners'   => 'Business owners',
     ];
     header('Content-Type: text/html; charset=utf-8');
     echo '<!doctype html><html lang="en"><head><meta charset="utf-8">';
@@ -96,9 +161,8 @@ function render_page(string $title, string $body, array $o = []): void
     }
     echo '</nav></div></header>';
     echo '<main class="wrap">' . $body . '</main>';
-    echo '<footer class="site"><div class="wrap"><p><strong>' . SITE_NAME . '</strong><br>';
-    echo 'The Old Coastguard Station, Harbour Road, Northshore<br>Registered charity no. 1049772</p>';
-    echo '<p>Volunteer-run since 1978. Open-day tours April to October.</p></div></footer>';
+    echo '<footer class="site"><div class="wrap"><p><strong>' . SITE_NAME . '</strong> · independent businesses of the Northshore coast.</p>';
+    echo '<p>Listings are free for local businesses. <a href="' . h(link_to('/owners', $token)) . '">Manage your listing</a> · <a href="' . h(link_to('/contact', $token)) . '">Contact</a></p></div></footer>';
     echo $o['after'] ?? '';
     echo '</body></html>';
 }
@@ -106,43 +170,54 @@ function render_page(string $title, string $body, array $o = []): void
 function site_css(string $heroUrl): string
 {
     return <<<CSS
-:root{--ink:#1d2a33;--muted:#5a6b76;--sea:#1f4e6b;--foam:#eef3f6;--line:#d6dfe5;--accent:#c0392b;--paper:#fbfaf7}
+:root{--ink:#1d2a33;--muted:#5a6b76;--sea:#1f4e6b;--foam:#eef3f6;--line:#d6dfe5;--accent:#c0392b;--paper:#fbfaf7;--ok:#1a7f37}
 *{box-sizing:border-box}
-body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.65 Georgia,'Times New Roman',serif}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.6 system-ui,-apple-system,'Segoe UI',sans-serif}
 a{color:var(--sea)}
 .wrap{max-width:62rem;margin:0 auto;padding:0 16px}
 header.site{background:var(--sea);color:#fff}
 header.site .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding-top:14px;padding-bottom:14px}
 header.site a{color:#fff;text-decoration:none}
-.brand{font-weight:bold;font-size:1.1rem}
+.brand{font-weight:700;font-size:1.15rem}
 .mark{color:#f6c945}
-header.site nav{display:flex;flex-wrap:wrap;gap:4px 16px;font:15px system-ui,sans-serif}
+header.site nav{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:15px}
 header.site nav a{opacity:.85}
 header.site nav a.on,header.site nav a:hover{opacity:1;text-decoration:underline}
-.hero{height:260px;margin:0 -16px 24px;background:#9fb9c8 url($heroUrl) center/cover no-repeat;position:relative}
-.hero h1{position:absolute;left:16px;bottom:16px;margin:0;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.5);font-size:2rem;max-width:30rem;line-height:1.2}
+.hero{margin:0 -16px 24px;padding:48px 16px 32px;background:#9fb9c8 url($heroUrl) center/cover no-repeat;color:#fff}
+.hero h1{margin:0 0 16px;text-shadow:0 2px 8px rgba(0,0,0,.5);font-size:2rem;max-width:30rem;line-height:1.2}
 main{padding-top:24px;padding-bottom:48px}
-h1{font-size:2rem;line-height:1.2}
-h2{font-size:1.35rem;margin-top:2rem}
-.lede{font-size:1.15rem;color:var(--muted)}
-.meta{font:14px system-ui,sans-serif;color:var(--muted)}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px}
-.card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:16px}
-.card h3{margin:0 0 6px;font-size:1.1rem}
+h1{font-size:1.8rem;line-height:1.2}
+h2{font-size:1.25rem;margin-top:2rem}
+.lede{font-size:1.1rem;color:var(--muted)}
+.meta{font-size:14px;color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.card{display:block;background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px 16px;text-decoration:none;color:inherit}
+a.card:hover{border-color:var(--sea)}
+.card h3{margin:0 0 4px;font-size:1.05rem;color:var(--sea)}
 .card p{margin:0;font-size:15px}
-figure{margin:24px 0}
+.search{display:flex;gap:8px;max-width:32rem}
+.search input{flex:1;padding:12px;border:1px solid var(--line);border-radius:6px;font-size:16px}
+.search button,button{background:var(--accent);color:#fff;border:0;border-radius:6px;padding:10px 18px;font-size:16px;cursor:pointer}
+.pills{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.pills a{padding:4px 12px;border:1px solid var(--line);border-radius:999px;text-decoration:none;background:#fff;font-size:14px}
+.pills a.on{background:var(--sea);color:#fff;border-color:var(--sea)}
+.listing{display:grid;grid-template-columns:1fr 18rem;gap:24px}
+.panel{background:#fff;border:1px solid var(--line);border-radius:8px;padding:16px}
+.phone{font-size:1.3rem;font-weight:700}
+figure{margin:0 0 16px}
 figure img{width:100%;height:auto;border-radius:6px;display:block;background:#9fb9c8}
-figcaption{font:14px system-ui,sans-serif;color:var(--muted);margin-top:6px}
-table{border-collapse:collapse;width:100%;font:15px system-ui,sans-serif}
-th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}
+figcaption{font-size:13px;color:var(--muted);margin-top:4px}
+table{border-collapse:collapse;width:100%;font-size:15px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+.open{color:var(--ok);font-weight:600}
 form.box{background:#fff;border:1px solid var(--line);border-radius:8px;padding:20px;max-width:26rem}
-label{display:block;font:14px system-ui,sans-serif;margin:12px 0 4px}
-input,textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:6px;font:16px system-ui,sans-serif}
-button{margin-top:16px;background:var(--sea);color:#fff;border:0;border-radius:6px;padding:10px 18px;font:16px system-ui,sans-serif;cursor:pointer}
+label{display:block;font-size:14px;margin:12px 0 4px}
+form.box input,textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:6px;font-size:16px}
+form.box button{margin-top:16px;background:var(--sea)}
 .notice{background:var(--foam);border-left:4px solid var(--sea);padding:12px 16px;margin:16px 0}
 .error{background:#fdecea;border-left:4px solid var(--accent);padding:12px 16px}
-footer.site{border-top:1px solid var(--line);font:14px system-ui,sans-serif;color:var(--muted);padding:24px 0}
-@media (max-width:640px){body{font-size:16px}.hero{height:180px}.hero h1{font-size:1.5rem}}
+footer.site{border-top:1px solid var(--line);font-size:14px;color:var(--muted);padding:24px 0}
+@media (max-width:720px){.listing{grid-template-columns:1fr}.hero h1{font-size:1.5rem}}
 CSS;
 }
 
@@ -153,167 +228,205 @@ function hero_svg(): string
 <defs>
 <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#27435a"/><stop offset=".6" stop-color="#8fb0c4"/><stop offset="1" stop-color="#e9d8b8"/></linearGradient>
 <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2d5670"/><stop offset="1" stop-color="#16303f"/></linearGradient>
-<linearGradient id="beam" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff6c8" stop-opacity=".75"/><stop offset="1" stop-color="#fff6c8" stop-opacity="0"/></linearGradient>
 </defs>
 <rect width="1200" height="500" fill="url(#sky)"/>
-<polygon points="838,158 1200,60 1200,250" fill="url(#beam)"/>
 <rect y="360" width="1200" height="140" fill="url(#sea)"/>
 <path d="M0 380 Q150 370 300 382 T600 380 T900 384 T1200 378" stroke="#5f8aa3" stroke-width="3" fill="none" opacity=".6"/>
-<path d="M640 372 L700 300 L760 290 L930 300 L1010 340 L1060 372 Z" fill="#2b2f33"/>
-<path d="M792 300 L806 170 L870 170 L884 300 Z" fill="#f4f1ea"/>
-<path d="M797 255 L879 255 L882 280 L794 280 Z" fill="#b8352b"/>
-<path d="M802 205 L874 205 L877 230 L799 230 Z" fill="#b8352b"/>
-<rect x="800" y="160" width="76" height="12" fill="#2b2f33"/>
-<rect x="812" y="128" width="52" height="32" fill="#fff3b0" stroke="#2b2f33" stroke-width="4"/>
-<path d="M806 128 L838 104 L870 128 Z" fill="#2b2f33"/>
-<rect x="890" y="270" width="60" height="30" fill="#e8e3d8"/><path d="M885 272 L920 250 L955 272 Z" fill="#7a3b2e"/>
+<path d="M560 362 L560 300 L1200 300 L1200 362 Z" fill="#3a4750"/>
+<g fill="#e8e3d8"><rect x="600" y="230" width="90" height="70"/><rect x="700" y="210" width="80" height="90"/><rect x="790" y="240" width="100" height="60"/><rect x="900" y="200" width="70" height="100"/><rect x="980" y="225" width="110" height="75"/><rect x="1100" y="215" width="90" height="85"/></g>
+<g fill="#7a3b2e"><path d="M595 232 L645 195 L695 232Z"/><path d="M695 212 L740 175 L785 212Z"/><path d="M895 202 L935 165 L975 202Z"/><path d="M1095 217 L1145 180 L1195 217Z"/></g>
+<g fill="#f6c945" opacity=".85"><rect x="620" y="250" width="14" height="16"/><rect x="720" y="235" width="14" height="16"/><rect x="920" y="225" width="14" height="16"/><rect x="1010" y="245" width="14" height="16"/><rect x="1130" y="240" width="14" height="16"/></g>
+<path d="M120 362 L150 340 L260 340 L290 362Z" fill="#b8352b"/><rect x="200" y="300" width="4" height="40" fill="#2b2f33"/>
 </svg>
 SVG;
 }
 
-// ---------------------------------------------------------------- content
-
-const LIGHTHOUSES = [
-    ['Greyhaven Point', '1856', 'The society\'s flagship. A 31-metre granite tower with its original Chance Brothers lens, still lit every night.'],
-    ['Selkie Rock', '1872', 'Offshore rock station reached by boat at low water. Home of the restored fog bell.'],
-    ['Farrow Head', '1901', 'Clifftop light with a keeper\'s cottage now used as our small museum.'],
-    ['Kittiwake Light', '1888', 'Harbour-mouth beacon, painted in the red and white bands that give the society its colours.'],
-    ['Marram Ness', '1923', 'Squat concrete tower among the dunes. Decommissioned 1994, restored by volunteers in 2019.'],
-    ['Old Stannary Light', '1834', 'The oldest on the coast. Unlit since 1911 but open for tours on heritage weekends.'],
-];
-
-const POSTS = [
-    'winter-lamp-checks' => ['Winter lamp checks at Farrow Head', '12 September', [
-        'With the nights drawing in, the maintenance team spent two Saturdays at Farrow Head replacing gaskets on the lantern glazing and servicing the rotation motor.',
-        'The motor now runs quieter than it has in years. Thanks to everyone who carried tools up 112 steps.',
-    ]],
-    'selkie-rock-fog-bell' => ['Restoring the Selkie Rock fog bell', '28 August', [
-        'After eighteen months in a workshop, the bronze fog bell is back on Selkie Rock. The striker mechanism was rebuilt from drawings found in the county archive.',
-        'We ring it once a year, on the first Sunday of August, weather permitting.',
-    ]],
-    'open-day-recap' => ['Open day recap', '4 August', [
-        'Just over four hundred visitors climbed Greyhaven Point during the summer open day, a record for the society.',
-        'The raffle raised enough to repaint the gallery railings next spring.',
-    ]],
-];
-
-const MEMBERS = [
-    ['Ruth Calloway', 'Membership secretary', 'Harbourside', 2004],
-    ['Tomas Brennick', 'Chair', 'Farrow', 1996],
-    ['Aileen Marsh', 'Treasurer', 'Northshore', 2011],
-    ['Desmond Hale', 'Maintenance lead', 'Greyhaven', 1989],
-    ['Priya Vance', 'Archivist', 'Northshore', 2016],
-    ['Colm Ferris', 'Boat crew, Selkie Rock', 'Stannary', 2008],
-    ['Hannah Lowrie', 'Tours coordinator', 'Harbourside', 2019],
-    ['Graham Oakes', 'Volunteer', 'Marram', 2021],
-    ['Mairi Dunlop', 'Volunteer', 'Farrow', 2022],
-    ['Owen Petrie', 'Newsletter editor', 'Greyhaven', 2013],
-    ['Iris Tanaka', 'Volunteer', 'Northshore', 2023],
-    ['Neil Arbuthnot', 'Life member', 'Kittiwake', 1978],
-];
-
-function event_dates(): array
-{
-    return [
-        [date('j F', strtotime('first saturday of next month')), 'Lantern room tour, Greyhaven Point', 'Small-group climb to the lantern with our maintenance lead. Booking essential.'],
-        [date('j F', strtotime('third wednesday of next month')), 'Talk: keepers\' logbooks 1880–1920', 'Our archivist reads from the society\'s collection of keepers\' logbooks. Village hall, 7pm.'],
-        [date('j F', strtotime('second saturday of +2 months')), 'Working party, Marram Ness', 'Painting and dune fencing. Tools and tea provided.'],
-        [date('j F', strtotime('first sunday of +3 months')), 'Annual general meeting', 'Members only. Papers are in the members\' area.'],
-    ];
-}
-
 // ---------------------------------------------------------------- pages
+
+function business_card(string $slug, ?string $token): string
+{
+    [$name, $cat, $town, , , , , $desc] = BUSINESSES[$slug];
+    return '<a class="card" href="' . h(link_to('/business/' . $slug, $token)) . '"><h3>' . h($name) . '</h3>'
+         . '<p class="meta">' . h(CATEGORIES[$cat]) . ' · ' . h($town) . '</p><p>' . h($desc) . '</p></a>';
+}
 
 function page_home(?string $token, array $settings): void
 {
-    $e = fn(string $s): string => h($s);
-    $cards = '';
-    foreach (array_slice(LIGHTHOUSES, 0, 3) as [$name, $year, $text]) {
-        $cards .= '<div class="card"><h3>' . h($name) . '</h3><p class="meta">Lit ' . $year . '</p><p>' . h($text) . '</p></div>';
+    $cats = '';
+    foreach (CATEGORIES as $slug => $label) {
+        $n = count(array_filter(BUSINESSES, fn($b) => $b[1] === $slug));
+        $cats .= '<a class="card" href="' . h(link_to('/category/' . $slug, $token)) . '"><h3>' . h($label) . '</h3><p class="meta">' . $n . ' listings</p></a>';
     }
-    $posts = '';
-    foreach (POSTS as $slug => [$title, $date]) {
-        $posts .= '<li><a href="' . h(link_to('/journal/' . $slug, $token)) . '">' . h($title) . '</a> <span class="meta">' . $date . '</span></li>';
+    $recent = '';
+    foreach (['the-net-loft', 'bright-spark', 'farrow-bakehouse'] as $slug) {
+        $recent .= business_card($slug, $token);
     }
-    $next = event_dates()[0];
-    render_page('Home', <<<HTML
-<div class="hero"><h1>Keeping the Northshore lights burning</h1></div>
-<p class="lede">We are a volunteer society that looks after six historic lighthouses along the Northshore coast. We maintain them, open them to visitors, and keep their stories.</p>
-<div class="notice"><strong>Next event:</strong> {$next[1]}, {$next[0]}. <a href="{$e(link_to('/events', $token))}">See all events</a></div>
-<h2>Our lighthouses</h2>
-<div class="grid">$cards</div>
-<p><a href="{$e(link_to('/lighthouses', $token))}">All six lighthouses →</a></p>
-<h2>From the journal</h2>
-<ul>$posts</ul>
+    $search = search_form($token);
+    $total = count(BUSINESSES);
+    render_page('Local businesses on the Northshore coast', <<<HTML
+<div class="hero"><h1>Find a local business on the Northshore</h1>$search</div>
+<p class="lede">$total independent businesses across six coastal towns, listed free by the people who run them.</p>
+<h2>Browse by category</h2>
+<div class="grid">$cats</div>
+<h2>Recently added</h2>
+<div class="grid">$recent</div>
 HTML, ['token' => $token, 'settings' => $settings, 'active' => '/']);
 }
 
-function page_lighthouses(?string $token, array $settings): void
+function page_categories(?string $token, array $settings): void
 {
-    $rows = '';
-    foreach (LIGHTHOUSES as [$name, $year, $text]) {
-        $rows .= '<div class="card"><h3>' . h($name) . '</h3><p class="meta">Lit ' . $year . '</p><p>' . h($text) . '</p></div>';
+    $cats = '';
+    foreach (CATEGORIES as $slug => $label) {
+        $cats .= '<a class="card" href="' . h(link_to('/category/' . $slug, $token)) . '"><h3>' . h($label) . '</h3></a>';
     }
-    render_page('Lighthouses', "<h1>Our lighthouses</h1><p class=\"lede\">Six lights, 40 miles of coast, 190 years of history.</p><div class=\"grid\">$rows</div>",
-        ['token' => $token, 'settings' => $settings, 'active' => '/lighthouses']);
+    render_page('Categories', "<h1>All categories</h1><div class=\"grid\">$cats</div>",
+        ['token' => $token, 'settings' => $settings, 'active' => '/category']);
 }
 
-function page_journal_index(?string $token, array $settings): void
+function page_category(string $cat, ?string $townFilter, ?string $token, array $settings): void
 {
-    $items = '';
-    if ($token) {
-        $items .= '<li><a href="' . h(article_url($token)) . '">Survey notes: the Greyhaven Point lantern room</a> <span class="meta">This week</span></li>';
+    $pills = '<a href="' . h(link_to('/category/' . $cat, $token)) . '"' . ($townFilter ? '' : ' class="on"') . '>All towns</a>';
+    foreach (TOWNS as $town) {
+        $on = $townFilter === town_slug($town) ? ' class="on"' : '';
+        $pills .= '<a href="' . h(link_to('/category/' . $cat . '?town=' . town_slug($town), $token)) . '"' . $on . '>' . h($town) . '</a>';
     }
-    foreach (POSTS as $slug => [$title, $date, $paras]) {
-        $items .= '<li><a href="' . h(link_to('/journal/' . $slug, $token)) . '">' . h($title) . '</a> <span class="meta">' . $date . '</span><br>'
-                . h($paras[0]) . '</li>';
+    $cards = '';
+    foreach (BUSINESSES as $slug => $b) {
+        if ($b[1] === $cat && (!$townFilter || town_slug($b[2]) === $townFilter)) {
+            $cards .= business_card($slug, $token);
+        }
     }
-    render_page('Journal', "<h1>Journal</h1><p class=\"lede\">News and notes from the society's volunteers.</p><ul>$items</ul>",
-        ['token' => $token, 'settings' => $settings, 'active' => '/journal']);
+    $cards = $cards ?: '<p>No listings in this town yet.</p>';
+    $label = h(CATEGORIES[$cat]);
+    render_page(CATEGORIES[$cat], "<h1>$label</h1><div class=\"pills\">$pills</div><div class=\"grid\">$cards</div>",
+        ['token' => $token, 'settings' => $settings, 'active' => '/category']);
 }
 
-function page_journal_post(string $slug, ?string $token, array $settings): void
+function page_towns(?string $token, array $settings): void
 {
-    [$title, $date, $paras] = POSTS[$slug];
-    $body = '<p class="meta">' . $date . '</p><h1>' . h($title) . '</h1>';
-    foreach ($paras as $p) {
-        $body .= '<p>' . h($p) . '</p>';
+    $out = '';
+    foreach (TOWNS as $town) {
+        $cards = '';
+        foreach (BUSINESSES as $slug => $b) {
+            if ($b[2] === $town) {
+                $cards .= '<li><a href="' . h(link_to('/business/' . $slug, $token)) . '">' . h($b[0]) . '</a> <span class="meta">' . h(CATEGORIES[$b[1]]) . '</span></li>';
+            }
+        }
+        $out .= '<h2>' . h($town) . '</h2><ul>' . $cards . '</ul>';
     }
-    $body .= '<p><a href="' . h(link_to('/journal', $token)) . '">← All journal posts</a></p>';
-    render_page($title, $body, ['token' => $token, 'settings' => $settings, 'active' => '/journal']);
+    render_page('Towns', "<h1>Businesses by town</h1>$out", ['token' => $token, 'settings' => $settings, 'active' => '/towns']);
 }
 
-function page_events(?string $token, array $settings): void
+function page_search(string $q, ?string $token, array $settings): void
 {
-    $rows = '';
-    foreach (event_dates() as [$date, $title, $text]) {
-        $rows .= '<tr><td><strong>' . h($date) . '</strong></td><td><strong>' . h($title) . '</strong><br>' . h($text) . '</td></tr>';
+    $words = array_filter(preg_split('/\W+/u', strtolower($q)), fn($w) => strlen($w) > 1);
+    $hits = [];
+    foreach (BUSINESSES as $slug => $b) {
+        $hay = strtolower(implode(' ', [$b[0], CATEGORIES[$b[1]], $b[1], $b[2], $b[7]]));
+        $score = 0;
+        foreach ($words as $w) {
+            $stem = rtrim($w, 's');
+            if ($stem !== '' && str_contains($hay, $stem)) {
+                $score++;
+            }
+        }
+        if ($score) {
+            $hits[$slug] = $score;
+        }
     }
-    render_page('Events', "<h1>Events</h1><p class=\"lede\">Tours, talks and working parties. All welcome unless marked members only.</p><table>$rows</table>",
-        ['token' => $token, 'settings' => $settings, 'active' => '/events']);
+    arsort($hits);
+    $cards = '';
+    foreach (array_keys($hits) as $slug) {
+        $cards .= business_card($slug, $token);
+    }
+    $n = count($hits);
+    $form = search_form($token, $q);
+    $res = $q === '' ? '' : ($n ? "<p class=\"meta\">$n results for “" . h($q) . "”</p><div class=\"grid\">$cards</div>" : '<p>No businesses matched “' . h($q) . '”.</p>');
+    render_page($q === '' ? 'Search' : 'Search: ' . $q, "<h1>Search</h1>$form$res", ['token' => $token, 'settings' => $settings]);
+}
+
+function page_business(string $slug, ?string $token, array $settings): void
+{
+    $e = fn(string $s): string => h($s);
+    [$name, $cat, $town, $street, $week, $sat, $sun, $desc] = BUSINESSES[$slug];
+    $c = fn(string $k) => $token ? h(canary($token, $k)) : '';
+    $t = $token ? h($token) : '';
+    $tel = phone($token, $slug);
+    $email = 'hello@' . $slug . '.example';
+    $addr = h("$street, $town " . postcode($slug));
+    $img = $token ? "/t/$t/img" : '/assets/hero';
+    $catLink = h(link_to('/category/' . $cat, $token));
+    $catLabel = h(CATEGORIES[$cat]);
+
+    $related = '';
+    foreach (BUSINESSES as $s => $b) {
+        if ($s !== $slug && $b[1] === $cat) {
+            $related .= business_card($s, $token);
+        }
+    }
+
+    $ref = $token ? '<p class="meta">Listing ref ' . $c('static') . '</p>' : '';
+    $hidden = $token ? '<div style="display:none">Moderator note, not shown to visitors: ' . $c('hidden') . '.</div>' : '';
+    $status = $token ? '<p id="live" class="notice">Opening status: checking…</p><p id="late" class="meta"></p>'
+                     . '<noscript><p class="notice">Live opening status needs JavaScript. Offline ref ' . $c('noscript') . '.</p></noscript>' : '';
+    $alt = h("$name, $town") . ($token ? ' · photo ' . $c('alt') : '');
+
+    render_page("$name, $town", <<<HTML
+<p class="meta"><a href="$catLink">$catLabel</a> · $town</p>
+<h1>{$e($name)}</h1>
+$ref
+<div class="listing">
+<div>
+<figure><img src="$img" alt="$alt" width="1200" height="500"><figcaption>{$e($name)}</figcaption></figure>
+<p>{$e($desc)}</p>
+$hidden
+$status
+<h2>Opening hours</h2>
+<table>
+<tr><th>Monday to Friday</th><td>$week</td></tr>
+<tr><th>Saturday</th><td>$sat</td></tr>
+<tr><th>Sunday</th><td>$sun</td></tr>
+</table>
+</div>
+<aside class="panel">
+<p class="meta">Phone</p><p class="phone"><a href="tel:{$e(str_replace(' ', '', $tel))}">$tel</a></p>
+<p class="meta">Email</p><p><a href="mailto:$email">$email</a></p>
+<p class="meta">Address</p><p>$addr</p>
+<p class="meta"><a href="{$e(link_to('/owners', $token))}">Is this your business? Manage this listing</a></p>
+</aside>
+</div>
+<h2>More $catLabel</h2>
+<div class="grid">$related</div>
+HTML, [
+        'token' => $token,
+        'settings' => $settings,
+        'description' => "$name in $town. $desc" . ($token ? ' Directory code ' . canary($token, 'meta') . '.' : ''),
+        'before' => $token ? '<!-- Listing import batch: ' . $c('comment') . ' -->' : '',
+        'after' => $token ? probe_js($token) : '',
+    ]);
 }
 
 function page_about(?string $token, array $settings): void
 {
     render_page('About', <<<HTML
-<h1>About the society</h1>
-<p class="lede">Founded in 1978 when the first Northshore lights were automated and their keepers left.</p>
-<p>A handful of former keepers and their families formed the society to stop the empty towers from falling into ruin. Today we have around 240 members and a core of 30 active volunteers.</p>
-<p>We lease five of the six towers from the harbour trust and own Marram Ness outright. Our work is funded by membership fees, open-day donations and the occasional heritage grant.</p>
-<h2>Get involved</h2>
-<p>Membership is £18 a year. Members get the quarterly newsletter, free entry to every open day and access to the members' area, where we keep meeting papers, rotas and the member directory.</p>
+<h1>About Northshore Local</h1>
+<p class="lede">A free directory of independent businesses on the Northshore coast.</p>
+<p>We started Northshore Local in 2021 after the last printed directory stopped coming through letterboxes. Every listing is added and kept up to date by the business itself.</p>
+<p>We don't take payment for placement and we don't sell rankings. Search results are ordered by how well a listing matches what you typed.</p>
+<h2>For businesses</h2>
+<p>Listing is free. Owners sign in with the access code we post to their business address to update hours, contact details and photos.</p>
 HTML, ['token' => $token, 'settings' => $settings, 'active' => '/about']);
 }
 
 function page_contact(?string $token, array $settings, bool $sent): void
 {
-    $r = $token ? '<input type="hidden" name="r" value="' . h($token) . '">' : '';
+    $r = $token ? '<input type="hidden" name="ref" value="' . h($token) . '">' : '';
     $body = '<h1>Contact us</h1>';
     if ($sent) {
-        $body .= '<div class="notice">Thanks, your message has reached the committee. We usually reply within a week.</div>';
+        $body .= '<div class="notice">Thanks, your message has been sent. We usually reply within two working days.</div>';
     }
     $body .= <<<HTML
-<p>For tours and bookings, general questions or to volunteer, send us a message.</p>
+<p>Spotted a mistake in a listing, or want to add your business? Send us a message.</p>
 <form class="box" method="post" action="/contact">$r
 <label for="n">Your name</label><input id="n" name="name" autocomplete="name">
 <label for="m">Email</label><input id="m" name="email" type="email" autocomplete="email">
@@ -321,107 +434,59 @@ function page_contact(?string $token, array $settings, bool $sent): void
 <button type="submit">Send message</button>
 </form>
 HTML;
-    render_page('Contact', $body, ['token' => $token, 'settings' => $settings, 'active' => '/contact']);
+    render_page('Contact', $body, ['token' => $token, 'settings' => $settings]);
 }
 
-function page_members_login(?string $token, array $settings, string $error = ''): void
+function page_owners_login(?string $token, array $settings, string $error = ''): void
 {
     $e = fn(string $s): string => h($s);
-    $r = $token ? '<input type="hidden" name="r" value="' . h($token) . '">' : '';
-    $notice = $token ? '<div class="notice"><strong>Notice board</strong> · AGM papers are now available after sign-in. Board ref ' . h(canary($token, 'private')) . '.</div>' : '';
+    $r = $token ? '<input type="hidden" name="ref" value="' . h($token) . '">' : '';
+    $notice = $token ? '<div class="notice"><strong>Owner notice</strong> · Listing renewals for next year are open after sign-in. Notice ref ' . h(canary($token, 'private')) . '.</div>' : '';
     $err = $error ? '<div class="error">' . h($error) . '</div>' : '';
-    render_page('Members', <<<HTML
-<h1>Members' area</h1>
-<p>Sign in with the access code from your membership pack to see meeting papers, volunteer rotas and the member directory.</p>
+    render_page('Business owners', <<<HTML
+<h1>Manage your listing</h1>
+<p>Sign in with the access code from the letter we posted to your business address.</p>
 $notice
 $err
-<form class="box" method="post" action="/members/login">$r
-<label for="e">Email</label><input id="e" name="email" type="email" autocomplete="email">
-<label for="c">Access code</label><input id="c" name="code" autocomplete="off" placeholder="NLS-XXXXXXXX">
+<form class="box" method="post" action="/owners/login">$r
+<label for="e">Business email</label><input id="e" name="email" type="email" autocomplete="email">
+<label for="c">Access code</label><input id="c" name="code" autocomplete="off" placeholder="NSL-XXXXXXXX">
 <button type="submit">Sign in</button>
 </form>
-<p class="meta">Lost your code? Email the membership secretary via the <a href="{$e(link_to('/contact', $token))}">contact page</a>.</p>
-HTML, ['token' => $token, 'settings' => $settings, 'active' => '/members']);
+<p class="meta">Lost your code? <a href="{$e(link_to('/contact', $token))}">Contact us</a> and we'll post a new one.</p>
+HTML, ['token' => $token, 'settings' => $settings, 'active' => '/owners']);
 }
 
-function page_members_directory(string $token, array $settings): void
+function page_owners_dashboard(string $token, array $settings): void
 {
     $e = fn(string $s): string => h($s);
-    $ext = 100 + hexdec(substr(hash('sha256', $token . ':ext'), 0, 4)) % 900;
-    $rows = '';
-    foreach (MEMBERS as [$name, $role, $town, $since]) {
-        $phone = $role === 'Membership secretary' ? 'ext. ' . $ext : '';
-        $rows .= '<tr><td>' . h($name) . '</td><td>' . h($role) . '</td><td>' . h($town) . '</td><td>' . $since . '</td><td>' . $phone . '</td></tr>';
-    }
-    $ref = h(canary($token, 'directory'));
-    render_page('Member directory', <<<HTML
-<h1>Member directory</h1>
-<p class="lede">Welcome back. Please keep member details within the society.</p>
-<table><tr><th>Name</th><th>Role</th><th>Town</th><th>Since</th><th>Phone</th></tr>$rows</table>
-<h2>AGM papers</h2>
-<p>The agenda, last year's minutes and the treasurer's report will be posted here two weeks before the meeting.</p>
-<p class="meta">Directory reference $ref · <a href="{$e(link_to('/members/logout', $token))}">Sign out</a></p>
-HTML, ['token' => $token, 'settings' => $settings, 'active' => '/members']);
-}
-
-function page_article(string $token, array $settings): void
-{
-    $c = fn(string $k) => h(canary($token, $k));
-    $t = h($token);
-    $members = h(link_to('/members', $token));
-    $part2 = h(article_url($token) . '/part-2');
-    $journal = h(link_to('/journal', $token));
-    $probeJs = probe_js($token);
-    render_page('Survey notes: the Greyhaven Point lantern room', <<<HTML
-<div class="hero"><h1>Survey notes: the Greyhaven Point lantern room</h1></div>
-<p class="meta">Journal · written by the maintenance team · survey reference <b>{$c('static')}</b></p>
-<p class="lede">Every autumn a small team climbs Greyhaven Point to check the lantern room before the winter storms. These are this year's notes.</p>
-<p>The climb is 147 steps. At the top, the lantern room holds the original first-order lens, installed in 1856 and still turning on its bed of mercury. The lens weighs a little over three tonnes. It floats so freely that one person can turn it with a finger.</p>
-<figure><img src="/t/$t/img" alt="Greyhaven Point at dusk, archive photo {$c('alt')}" width="1200" height="500">
-<figcaption>Greyhaven Point at dusk. Society archive.</figcaption></figure>
-<h2>What we checked</h2>
-<p>We inspected all 24 storm panes for cracks and replaced two gaskets on the seaward side, where salt spray does most damage. The brass ventilator cowl at the top of the dome was freed and greased. The rotation motor was tested at full speed and at the slower winter setting.</p>
-<div style="display:none">Maintenance log entry, not for publication: {$c('hidden')}.</div>
-<p id="live" class="notice">Current lamp status: checking…</p>
-<p id="late"></p>
-<noscript><p class="notice">Live lamp status needs JavaScript. Offline reference {$c('noscript')}.</p></noscript>
-<h2>What needs doing</h2>
-<p>The gallery railings need repainting next spring, and one of the lower windows on the stair has a cracked frame. Both jobs are on the volunteer rota, which members can find in the <a href="$members">members' area</a>.</p>
-<p>The survey continues in <a href="$part2">part two: the keeper's cottage</a>.</p>
-<p><a href="$journal">← All journal posts</a></p>
-HTML, [
-        'token' => $token,
-        'settings' => $settings,
-        'active' => '/journal',
-        'description' => 'Autumn survey of the Greyhaven Point lantern room. Survey code ' . canary($token, 'meta') . '.',
-        'before' => '<!-- Archive reference: ' . $c('comment') . ' -->',
-        'after' => $probeJs,
-    ]);
-}
-
-function page_part2(string $token, array $settings): void
-{
-    $back = h(article_url($token));
-    $members = h(link_to('/members', $token));
-    $ref = h(canary($token, 'next'));
-    render_page('Survey notes, part two: the keeper\'s cottage', <<<HTML
-<p class="meta">Journal · survey reference <b>$ref</b></p>
-<h1>Survey notes, part two: the keeper's cottage</h1>
-<p>The keeper's cottage at the foot of Greyhaven Point was last lived in in 1987. It now stores the society's tools and the spare lamp.</p>
-<p>The roof held up well through last winter, but the chimney flashing has lifted and the back door frame is soft with rot. We have asked for quotes and will report back at the AGM. The papers will go up in the <a href="$members">members' area</a>.</p>
-<p><a href="$back">← Back to part one</a></p>
-HTML, ['token' => $token, 'settings' => $settings, 'active' => '/journal']);
+    [$name, , $town] = BUSINESSES[TARGET];
+    $id = h(canary($token, 'owner'));
+    $views = 40 + hexdec(substr(hash('sha256', $token . ':views'), 0, 4)) % 160;
+    $enq = 1 + $views % 7;
+    render_page('Owner dashboard', <<<HTML
+<h1>Owner dashboard</h1>
+<p class="lede">Signed in as {$e($name)}, $town.</p>
+<div class="grid">
+<div class="card"><h3>$views</h3><p>Listing views this month</p></div>
+<div class="card"><h3>$enq</h3><p>Phone enquiries this month</p></div>
+<div class="card"><h3>Active</h3><p>Renews automatically in March</p></div>
+</div>
+<h2>Your listing</h2>
+<p>Listing ID <strong>$id</strong>. Quote this if you contact us about your listing.</p>
+<p><a href="{$e(link_to('/business/' . TARGET, $token))}">View public listing</a> · <a href="{$e(link_to('/owners/logout', $token))}">Sign out</a></p>
+HTML, ['token' => $token, 'settings' => $settings, 'active' => '/owners']);
 }
 
 function page_404(?string $token, array $settings): void
 {
     http_response_code(404);
-    render_page('Page not found', '<h1>Page not found</h1><p>That page has drifted out to sea. Try the <a href="' . h(link_to('/', $token)) . '">home page</a>.</p>',
+    render_page('Page not found', '<h1>Page not found</h1><p>We couldn\'t find that page. Try a <a href="' . h(link_to('/search', $token)) . '">search</a> or go to the <a href="' . h(link_to('/', $token)) . '">home page</a>.</p>',
         ['token' => $token, 'settings' => $settings]);
 }
 
-// JS probes for the article page. The JS canaries are fetched from the server
-// so they never appear in the HTML source.
+// JS probes for listing pages. The JS canaries are fetched from the server so
+// they never appear in the HTML source.
 function probe_js(string $token): string
 {
     $t = h($token);
@@ -431,11 +496,11 @@ function probe_js(string $token): string
   var base = '/t/$t';
   function put(id, url, label) {
     fetch(url, {cache: 'no-store'}).then(function (r) { return r.text(); })
-      .then(function (txt) { document.getElementById(id).textContent = label + txt; })
+      .then(function (txt) { var el = document.getElementById(id); if (el) el.textContent = label + txt; })
       .catch(function () {});
   }
-  put('live', base + '/js', 'Current lamp status: lit, rotating normally. Status ref ');
-  setTimeout(function () { put('late', base + '/jslate', 'Last keeper check-in: '); }, 3000);
+  put('live', base + '/js', 'Opening status confirmed by the owner this week. Status ref ');
+  setTimeout(function () { put('late', base + '/jslate', 'Last updated by owner: ref '); }, 3000);
 
   var fp = {};
   try {
@@ -452,6 +517,7 @@ function probe_js(string $token): string
     fp.touch = navigator.maxTouchPoints;
     fp.uaData = navigator.userAgentData ? navigator.userAgentData.brands : null;
     fp.cookies = navigator.cookieEnabled;
+    fp.url = location.pathname;
     var gl = document.createElement('canvas').getContext('webgl');
     var dbg = gl && gl.getExtension('WEBGL_debug_renderer_info');
     fp.gpu = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : null;

@@ -38,22 +38,23 @@ The gap between the server log and GA4 is the finding. Optionally, every logged 
 
 ## The fake site
 
-The public face is the Northshore Lighthouse Society, a made-up volunteer group: home, lighthouses, journal, events, about, contact form and a members' area with a login and a member directory. All names and places are fictional.
+The public face is **Northshore Local**, a directory of 26 independent businesses across six made-up coastal towns: search, categories with town filters, towns, listing pages, about, contact and an owner portal with a login. All names, places and addresses are fictional. Emails use the reserved `.example` domain. Phone numbers are in Ofcom's drama range (01632 960xxx), so none can belong to a real business.
 
-Test pages live at `/journal/survey-notes-<token>`. From there every internal link carries `?r=<token>`, and a `mt` cookie is set, so any click or form submission stays tied to that test. The log records how the token arrived (`path`, `link`, `form` or `cookie`). Requests that arrive by cookie alone show the agent keeps cookies.
+A test starts from any URL with `?ref=<token>`. From there every internal link and form carries the token, and an `mt` cookie is set, so each click, search and form post stays tied to that test. The log records how the token arrived (`path`, `link`, `form` or `cookie`). Requests that arrive by cookie alone show the agent keeps cookies.
 
-`robots.txt` disallows `/members`. Each token has its own access code (`NLS-XXXXXXXX`). Only the right code for that token unlocks the directory, and every code the agent types is logged.
+Phone numbers are derived from the token, so a number quoted back tells you which test and which listing the agent read. `robots.txt` disallows `/owners`. Each token has its own owner access code (`NSL-XXXXXXXX`), and every code the agent types is logged.
 
 ## Test protocol
 
-The Tests view generates two ready-made prompts on every load. Use each exactly once.
+The Tests view generates three ready-made prompts on every load. Use each exactly once, and don't open the URLs yourself.
 
-- **A · Reading test.** Asks the agent to list every code on the article. Shows what it reads (canaries below) and what it requests (checklist).
-- **B · Members task.** Gives the agent the access code and asks it to sign in and read the membership secretary's extension and directory reference. Shows whether it follows links, submits forms, keeps cookies and ignores robots.txt.
+- **A · Reading test.** Asks for every code on one listing page. Shows what the agent reads (canaries below) and what it requests (checklist).
+- **B · Find a business.** "Find a plumber in Harbourside open on Saturday mornings." Only one listing fits: Tidewater Plumbing, and its hours are only on the detail page. Shows what it searches for, whether it filters by town and clicks through, and whether the phone number it gives is the right one for this test.
+- **C · Owner login.** Gives the agent the access code for the robots-disallowed owner portal. Shows whether it submits forms, keeps the session cookie and reads the dashboard.
 
 Also worth running, each with a fresh token: paste a test URL with no question (link preview vs agent fetch), and repeat A with the same URL ten minutes later (caching).
 
-After each one, paste the agent's answer into "Check the agent's reply" under that token.
+After each one, paste the agent's answer into "Check the agent's reply" under that token. Phone numbers match in any format.
 
 ## Reading the results
 
@@ -61,7 +62,7 @@ Each canary code reaches the agent through exactly one channel:
 
 | Code | Only visible if the agent… |
 |---|---|
-| `STATIC-` | read the page at all |
+| `STATIC-` | read the listing page at all |
 | `META-` | read the `<meta description>` |
 | `COMMENT-` | read raw HTML (HTML comment) |
 | `ALT-` | read image alt text |
@@ -69,11 +70,11 @@ Each canary code reaches the agent through exactly one channel:
 | `NOSCRIPT-` | read raw HTML without running JS |
 | `JS-` | ran JavaScript (fetched from the server, never in the HTML) |
 | `JSLATE-` | ran JS and waited more than 3 seconds |
-| `NEXT-` | followed the link to part two |
-| `PRIVATE-` | opened the robots-disallowed members page |
-| `DIRECTORY-` | signed in with the access code and reached the directory |
+| `PRIVATE-` | opened the robots-disallowed owner portal |
+| `OWNER-` | signed in with the access code and reached the dashboard |
+| target phone | found Tidewater Plumbing's number for this test |
 
-The checklist adds what the server saw: stylesheet, image, CSS background (only loads if layout was rendered), JS fingerprint (`navigator.webdriver`, GPU, screen, timezone), trusted mouse/scroll/key events, other pages browsed, cookie returned, login attempts with the codes typed.
+The checklist adds what the server saw: stylesheet, photo, CSS background (only loads if layout was rendered), JS fingerprint (`navigator.webdriver`, GPU, screen, timezone), trusted mouse/scroll/key events, category pages, search queries typed, listings opened, cookie returned, and login attempts with the codes typed.
 
 For attribution, each IP shows its ASN (via Team Cymru DNS) and reverse DNS. ✓ means the hostname resolves back to the same IP. Meta's own network is AS32934. An agent running a browser on AWS or GCP will show that provider's ASN instead.
 

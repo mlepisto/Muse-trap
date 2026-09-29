@@ -56,38 +56,40 @@ function token_ok(mixed $s): bool
 }
 
 // Which test (token) and which probe a request belongs to, and how the token
-// was carried: in the path, a ?r= link, a form field, or the mt cookie.
+// was carried: in the path, a ?ref= link, a form field, or the mt cookie.
 function classify(string $path): array
 {
     if (preg_match('#^/t/([A-Za-z0-9_-]{6,64})(?:/([a-z-]+))?/?$#', $path, $m)) {
-        return [$m[1], $m[2] ?? 'page', 'path'];
-    }
-    if (preg_match('#^/journal/survey-notes-([A-Za-z0-9_-]{6,64}?)(/part-2)?/?$#', $path, $m)) {
-        return [$m[1], empty($m[2]) ? 'page' : 'next', 'path'];
-    }
-    if (preg_match('#^/private/([A-Za-z0-9_-]{6,64})/?$#', $path, $m)) {
-        return [$m[1], 'private', 'path'];
+        return [$m[1], $m[2] ?? 'legacy', 'path'];
     }
     if ($path === '/robots.txt') {
         return [null, 'robots', null];
     }
 
-    if (token_ok($_GET['r'] ?? null)) {
-        [$token, $via] = [$_GET['r'], 'link'];
-    } elseif (token_ok($_POST['r'] ?? null)) {
-        [$token, $via] = [$_POST['r'], 'form'];
+    $q = $_GET['ref'] ?? $_GET['r'] ?? null;
+    $f = $_POST['ref'] ?? $_POST['r'] ?? null;
+    if (token_ok($q)) {
+        [$token, $via] = [$q, 'link'];
+    } elseif (token_ok($f)) {
+        [$token, $via] = [$f, 'form'];
     } elseif (token_ok($_COOKIE['mt'] ?? null)) {
         [$token, $via] = [$_COOKIE['mt'], 'cookie'];
     } else {
         return [null, null, null];
     }
-    $probe = match (rtrim($path, '/')) {
-        '/members'           => 'private',
-        '/members/login'     => 'login',
-        '/members/directory' => 'directory',
-        '/contact'           => ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' ? 'contact-form' : 'nav:contact',
-        ''                   => 'nav:home',
-        default              => 'nav:' . trim($path, '/'),
+
+    $p = rtrim($path, '/');
+    $post = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
+    $probe = match (true) {
+        (bool)preg_match('#^/business/([a-z0-9-]+)$#', $p, $m) => 'listing:' . $m[1],
+        str_starts_with($p, '/category/')  => 'category',
+        $p === '/search'                   => 'search',
+        $p === '/owners'                   => 'private',
+        $p === '/owners/login'             => 'login',
+        $p === '/owners/dashboard'         => 'dashboard',
+        $p === '/contact' && $post         => 'contact-form',
+        $p === ''                          => 'nav:home',
+        default                            => 'nav:' . trim($p, '/'),
     };
     return [$token, $probe, $via];
 }
@@ -200,19 +202,20 @@ if ($token !== null && $via !== 'cookie' && ($_COOKIE['mt'] ?? '') !== $token) {
 
 if ($probe === 'robots') {
     header('Content-Type: text/plain; charset=utf-8');
-    echo "User-agent: *\nDisallow: /members\nDisallow: /private/\n";
+    echo "User-agent: *\nDisallow: /owners\n";
     exit;
 }
 
-// Sub-resources of a test: /t/<token>/<probe>
-if (preg_match('#^/t/[^/]+/[a-z-]+/?$#', $path)) {
+// Sub-resources of a test: /t/<token>/<probe>. A bare /t/<token> (old test
+// URLs) forwards to the home page with the token attached.
+if (str_starts_with($path, '/t/')) {
     switch ($probe) {
         case 'css':
             header('Content-Type: text/css; charset=utf-8');
             echo site_css('/t/' . $token . '/bg');
             exit;
         case 'img':
-            // Night-time variant, so the article photo differs from the banner.
+            // Night-time variant, so the listing photo differs from the banner.
             header('Content-Type: image/svg+xml');
             echo str_replace(['#27435a', '#8fb0c4', '#e9d8b8'], ['#0b1622', '#1d3347', '#3d4f5e'], hero_svg());
             exit;
@@ -229,80 +232,79 @@ if (preg_match('#^/t/[^/]+/[a-z-]+/?$#', $path)) {
         case 'ga':
             http_response_code(204);
             exit;
-        case 'next':
-            header('Location: ' . article_url($token) . '/part-2', true, 301);
+        case 'legacy':
+            header('Location: ' . link_to('/', $token), true, 302);
             exit;
     }
     page_404($token, $settings);
     exit;
 }
 
+$p = rtrim($path, '/') ?: '/';
 switch (true) {
-    case $path === '/assets/site-css':
+    case $p === '/assets/site-css':
         header('Content-Type: text/css; charset=utf-8');
         echo site_css('/assets/hero');
         exit;
-    case $path === '/assets/hero':
+    case $p === '/assets/hero':
         header('Content-Type: image/svg+xml');
         echo hero_svg();
         exit;
 
-    case $probe === 'page' && $via === 'path':
-        page_article($token, $settings);
-        exit;
-    case $probe === 'next' && $via === 'path':
-        page_part2($token, $settings);
-        exit;
-
-    case $path === '/':
+    case $p === '/':
         page_home($token, $settings);
         exit;
-    case $path === '/lighthouses':
-        page_lighthouses($token, $settings);
+    case $p === '/category':
+        page_categories($token, $settings);
         exit;
-    case $path === '/journal':
-        page_journal_index($token, $settings);
+    case (bool)preg_match('#^/category/([a-z]+)$#', $p, $m) && isset(CATEGORIES[$m[1]]):
+        $town = strtolower((string)($_GET['town'] ?? ''));
+        $valid = array_map('town_slug', TOWNS);
+        page_category($m[1], in_array($town, $valid, true) ? $town : null, $token, $settings);
         exit;
-    case (bool)preg_match('#^/journal/([a-z0-9-]+)$#', $path, $m) && isset(POSTS[$m[1]]):
-        page_journal_post($m[1], $token, $settings);
+    case $p === '/towns':
+        page_towns($token, $settings);
         exit;
-    case $path === '/events':
-        page_events($token, $settings);
+    case $p === '/search':
+        page_search(substr(trim((string)($_GET['q'] ?? '')), 0, 100), $token, $settings);
         exit;
-    case $path === '/about':
+    case (bool)preg_match('#^/business/([a-z0-9-]+)$#', $p, $m) && isset(BUSINESSES[$m[1]]):
+        page_business($m[1], $token, $settings);
+        exit;
+    case $p === '/about':
         page_about($token, $settings);
         exit;
-    case $path === '/contact':
+    case $p === '/contact':
         page_contact($token, $settings, $method === 'POST');
         exit;
 
-    case $path === '/members' || $path === '/members/' || str_starts_with($path, '/private/'):
-        page_members_login($token, $settings);
+    case $p === '/owners':
+        page_owners_login($token, $settings);
         exit;
-    case $path === '/members/login':
+    case $p === '/owners/login':
         if ($method !== 'POST') {
-            header('Location: ' . link_to('/members', $token), true, 303);
+            header('Location: ' . link_to('/owners', $token), true, 303);
             exit;
         }
         $code = strtoupper(trim((string)($_POST['code'] ?? '')));
         if ($token !== null && hash_equals(access_code($token), $code)) {
-            setcookie('mt_auth', auth_value($token, $ADMIN_KEY_HASH), ['expires' => time() + 86400, 'path' => '/members', 'samesite' => 'Lax', 'httponly' => true]);
-            header('Location: ' . link_to('/members/directory', $token), true, 303);
+            setcookie('mt_auth', auth_value($token, $ADMIN_KEY_HASH), ['expires' => time() + 86400, 'path' => '/owners', 'samesite' => 'Lax', 'httponly' => true]);
+            header('Location: ' . link_to('/owners/dashboard', $token), true, 303);
             exit;
         }
         http_response_code(401);
-        page_members_login($token, $settings, "That access code wasn't recognised. Check your membership pack and try again.");
+        page_owners_login($token, $settings, "That access code wasn't recognised. Check the letter we sent and try again.");
         exit;
-    case $path === '/members/directory':
+    case $p === '/owners/dashboard':
         if ($token !== null && hash_equals(auth_value($token, $ADMIN_KEY_HASH), (string)($_COOKIE['mt_auth'] ?? ''))) {
-            page_members_directory($token, $settings);
+            page_owners_dashboard($token, $settings);
             exit;
         }
-        header('Location: ' . link_to('/members', $token), true, 303);
+        header('Location: ' . link_to('/owners', $token), true, 303);
         exit;
-    case $path === '/members/logout':
-        setcookie('mt_auth', '', ['expires' => 1, 'path' => '/members']);
-        header('Location: ' . link_to('/members', $token), true, 303);
+    case $p === '/owners/logout':
+        setcookie('mt_auth', '', ['expires' => 1, 'path' => '/owners']);
+        header('Location: ' . link_to('/owners', $token), true, 303);
         exit;
 }
 
