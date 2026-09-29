@@ -286,14 +286,18 @@ switch (true) {
             header('Location: ' . link_to('/owners', $token), true, 303);
             exit;
         }
-        $code = strtoupper(trim((string)($_POST['code'] ?? '')));
-        if ($token !== null && hash_equals(access_code($token), $code)) {
+        // One field takes either the access code or the listing's email. Older
+        // clients may still send a separate email field, so accept that too.
+        $given = [strtoupper(trim((string)($_POST['code'] ?? ''))), strtoupper(trim((string)($_POST['email'] ?? '')))];
+        $ok = $token !== null && (in_array(access_code($token), $given, true)
+            || in_array(strtoupper('hello@' . TARGET . '.example'), $given, true));
+        if ($ok) {
             setcookie('mt_auth', auth_value($token, $ADMIN_KEY_HASH), ['expires' => time() + 86400, 'path' => '/owners', 'samesite' => 'Lax', 'httponly' => true]);
             header('Location: ' . link_to('/owners/dashboard', $token), true, 303);
             exit;
         }
         http_response_code(401);
-        page_owners_login($token, $settings, "That access code wasn't recognised. Check the letter we sent and try again.");
+        page_owners_login($token, $settings, "We didn't recognise that. Enter the access code from your letter, or the email address shown on your listing.");
         exit;
     case $p === '/owners/dashboard':
         if ($token !== null && hash_equals(auth_value($token, $ADMIN_KEY_HASH), (string)($_COOKIE['mt_auth'] ?? ''))) {

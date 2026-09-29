@@ -450,12 +450,11 @@ function page_owners_login(?string $token, array $settings, string $error = ''):
     $err = $error ? '<div class="error">' . h($error) . '</div>' : '';
     render_page('Business owners', <<<HTML
 <h1>Manage your listing</h1>
-<p>Sign in with the access code from the letter we posted to your business address.</p>
+<p>Enter <strong>either</strong> the access code from the letter we posted to you <strong>or</strong> the email address on your listing. One is enough, no password needed.</p>
 $notice
 $err
 <form class="box" method="post" action="/owners/login">$r
-<label for="e">Business email</label><input id="e" name="email" type="email" autocomplete="email">
-<label for="c">Access code</label><input id="c" name="code" autocomplete="off" placeholder="NSL-XXXXXXXX">
+<label for="c">Access code or business email</label><input id="c" name="code" autocomplete="off" placeholder="NSL-XXXXXXXX or you@business.example">
 <button type="submit">Sign in</button>
 </form>
 <p class="meta">Lost your code? <a href="{$e(link_to('/contact', $token))}">Contact us</a> and we'll post a new one.</p>

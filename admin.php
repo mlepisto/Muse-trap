@@ -552,8 +552,9 @@ if ($loose): ?>
     foreach ($rows as $r) {
         if ($r['probe'] === 'login' && $r['method'] === 'POST') {
             parse_str((string)$r['body'], $form);
-            $tried = (string)($form['code'] ?? '');
-            $logins[] = [$tried, strtoupper(trim($tried)) === access_code($token)];
+            $tried = trim((string)($form['code'] ?? '') . ' ' . (string)($form['email'] ?? ''));
+            $up = strtoupper($tried);
+            $logins[] = [$tried, str_contains($up, access_code($token)) || str_contains($up, strtoupper('hello@' . TARGET . '.example'))];
         }
     }
     $t0 = $rows[0]['t'];
