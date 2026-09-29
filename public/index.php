@@ -10,6 +10,9 @@ declare(strict_types=1);
 
 $config = is_file(__DIR__ . '/config.php') ? require __DIR__ . '/config.php' : [];
 $ADMIN_KEY = $config['admin_key'] ?? '';
+// bcrypt hash of the admin key, so no server-side config file is needed.
+// config.php's admin_key, if set, takes precedence.
+$ADMIN_KEY_HASH = $config['admin_key_hash'] ?? '$2y$12$Xmdhmp6sSQcBu60WJSSXXe6YECMrpE9NrpcwJ.lkdF.MSk8Tivea6';
 $DATA_DIR  = $config['data_dir'] ?? dirname(__DIR__) . '/muse-data';
 $LOG_FILE  = $DATA_DIR . '/hits.jsonl';
 $IP_CACHE  = $DATA_DIR . '/ipcache.json';

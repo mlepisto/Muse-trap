@@ -12,13 +12,10 @@ if (!isset($LOG_FILE)) {
 
 no_cache();
 
-if ($ADMIN_KEY === '' || $ADMIN_KEY === 'change-me') {
-    http_response_code(503);
-    header('Content-Type: text/plain; charset=utf-8');
-    echo "Set admin_key in config.php first.\n";
-    exit;
-}
-if (!hash_equals($ADMIN_KEY, (string)($_GET['key'] ?? ''))) {
+$given = (string)($_GET['key'] ?? '');
+$useKey = $ADMIN_KEY !== '' && $ADMIN_KEY !== 'change-me';
+$authed = $useKey ? hash_equals($ADMIN_KEY, $given) : ($given !== '' && password_verify($given, $ADMIN_KEY_HASH));
+if (!$authed) {
     http_response_code(404);
     header('Content-Type: text/plain; charset=utf-8');
     echo "Not found\n";

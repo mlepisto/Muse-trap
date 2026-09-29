@@ -6,15 +6,14 @@ Two PHP files. No database, no dependencies.
 
 ## Deploy on SpinupWP
 
-1. **DNS:** add an A record for a subdomain (e.g. `lab.yourdomain.com`) pointing at your SpinupWP server.
-2. **Site:** in SpinupWP, add a new site on that server for the subdomain. Pick the non-WordPress/blank option. Turn on HTTPS (Let's Encrypt).
+1. **DNS:** A record for the subdomain pointing at the server.
+2. **Add Site:** choose "Clone a Git Repository", SSH URL `git@github.com:mlepisto/Muse-trap.git`, set **Public Folder** to `/public`, turn on HTTPS. Add the deploy key SpinupWP shows you to the GitHub repo (Settings → Deploy keys, read-only).
 3. **Turn page caching off** for this site. With caching on, repeat fetches never reach PHP and never get logged.
-4. **Upload** the contents of `public/` into the site's web root (`/sites/lab.yourdomain.com/files/`) via SFTP or SpinupWP's git deploy.
-5. **Config:** copy `config.sample.php` to `config.php` and set `admin_key` to a long random string:
-   `php -r 'echo bin2hex(random_bytes(16)), "\n";'`
-6. **Check it:** visit `https://lab.yourdomain.com/robots.txt`, then `https://lab.yourdomain.com/_muse?key=YOURKEY`. The robots.txt fetch should appear in the list.
+4. **Check it:** visit `/robots.txt`, then `/_muse?key=YOURKEY`. The robots.txt fetch should appear in the list.
 
-Logs go to `/sites/lab.yourdomain.com/muse-data/hits.jsonl`, outside the web root. nginx's own access log (`/sites/lab.yourdomain.com/logs/`) stays on as a backup.
+No server-side config is needed. The admin key's bcrypt hash is committed in `public/index.php` (`$ADMIN_KEY_HASH`). To change the key, replace that hash with the output of `php -r 'echo password_hash("NEWKEY", PASSWORD_DEFAULT), "\n";'`. A `public/config.php` (see `config.sample.php`) overrides it if present.
+
+Logs go to `/sites/<domain>/files/muse-data/hits.jsonl`, outside the public folder and gitignored. nginx's own access log (`/sites/<domain>/logs/`) stays on as a backup.
 
 SpinupWP's nginx sends unknown paths to `index.php`, which is why every probe URL has no file extension. If a probe never shows up, check the nginx access log. A static-file rule may have caught it before PHP.
 
